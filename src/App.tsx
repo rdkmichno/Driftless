@@ -9,6 +9,9 @@ import { BriefingCard } from './components/BriefingCard';
 import { LaunchSequence } from './components/LaunchSequence';
 import { TransitHUD } from './components/TransitHUD';
 import { ArrivalCard } from './components/ArrivalCard';
+import { StarMap } from './components/StarMap';
+import { MissionLogView } from './components/MissionLogView';
+import { SettingsView } from './components/SettingsView';
 
 // Dev aid: ?t=<minutes> overrides every mission's planned duration (dev builds only)
 const devMinutes = import.meta.env.DEV ? Number(new URLSearchParams(location.search).get('t')) || null : null;
@@ -78,6 +81,13 @@ export function App() {
         <AnimatePresence mode="wait">
           {phase === 'idle' && homeView === 'home' && (
             <HomeView key="home" onNavigate={setHomeView} />
+          )}
+          {phase === 'idle' && homeView === 'map' && <StarMap key="map" onBack={() => setHomeView('home')} />}
+          {phase === 'idle' && homeView === 'log' && (
+            <MissionLogView key="log" onBack={() => setHomeView('home')} />
+          )}
+          {phase === 'idle' && homeView === 'settings' && (
+            <SettingsView key="settings" onBack={() => setHomeView('home')} />
           )}
           {phase === 'briefing' && <BriefingCard key="briefing" />}
           {phase === 'launching' && <LaunchSequence key="launch" />}
