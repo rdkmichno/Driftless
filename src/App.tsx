@@ -8,6 +8,8 @@ import { HomeView, type HomeNav } from './components/HomeView';
 import { BriefingCard } from './components/BriefingCard';
 import { LaunchSequence } from './components/LaunchSequence';
 import { TransitHUD } from './components/TransitHUD';
+import { useAudio } from './audio/useAudio';
+import { audio } from './audio/engine';
 import { ArrivalCard } from './components/ArrivalCard';
 import { StarMap } from './components/StarMap';
 import { MissionLogView } from './components/MissionLogView';
@@ -21,6 +23,7 @@ export function App() {
   const [homeView, setHomeView] = useState<HomeNav | 'home'>('home');
   const now = useTicker();
   const prevProgress = useRef(0);
+  useAudio();
 
   // Resume a persisted in-flight session once on boot
   useEffect(() => {
@@ -57,6 +60,9 @@ export function App() {
     }
     const p = progress(s, now);
     sceneState.planetProgress = p;
+    if (st.settings.halfwayPing && prevProgress.current > 0 && prevProgress.current < 0.5 && p >= 0.5) {
+      audio.cueHalfway();
+    }
     const remaining = remainingMs(s, now);
     if (phase === 'transit' || phase === 'arriving') {
       if (remaining <= 0) {
