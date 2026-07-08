@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Starfield } from './starfield';
 import { drawDestination } from './planets';
 import { computeLayout, drawFlightMap } from './flightmap';
-import { drawAscentFrame, ASCENT_MS } from './ascent';
+import { drawAscentFrame, drawAscentPost, teardownAscent, ASCENT_MS } from './ascent';
 import { getDestination } from '../data/destinations';
 import { useStore, type Phase } from '../state/store';
 
@@ -38,6 +38,7 @@ export function SceneCanvas() {
     let running = false;
     let arrivalScale = 0; // eased extra swell during arriving/arrived
     let ascentStart: number | null = null; // takeoff animation clock
+    let takeoffActive = false; // for freeing takeoff resources on exit/skip
 
     const resize = () => {
       const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -111,8 +112,10 @@ export function SceneCanvas() {
           });
         }
       }
+      drawAscentPost(ctx, innerWidth, innerHeight, at);
       if (phase === 'ascent' && at >= 1) {
         ascentStart = null;
+        teardownAscent();
         useStore.getState().beginTransit(Date.now());
       }
     };
@@ -124,9 +127,14 @@ export function SceneCanvas() {
       field.setSpeedTarget(PHASE_SPEED[phase]);
       if (!isReduced()) field.step(dt);
       if (phase === 'launching' || phase === 'ascent') {
+        takeoffActive = true;
         drawTakeoff(t);
       } else {
         ascentStart = null;
+        if (takeoffActive) {
+          takeoffActive = false;
+          teardownAscent();
+        }
         field.draw(ctx);
         drawMission(t);
       }
