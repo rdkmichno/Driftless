@@ -21,7 +21,11 @@ class AudioEngine {
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = this.targetGain();
-      this.master.connect(ctx.destination);
+      // gentle master lowpass keeps everything free of sharp highs
+      const softener = ctx.createBiquadFilter();
+      softener.type = 'lowpass';
+      softener.frequency.value = 3200;
+      this.master.connect(softener).connect(ctx.destination);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
     if (this.bedActive && !this.bed) this.buildBed();
@@ -74,13 +78,22 @@ class AudioEngine {
 
   private brownNoiseBuffer(ctx: AudioContext): AudioBuffer {
     const len = ctx.sampleRate * 4;
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
+    const fade = Math.floor(ctx.sampleRate * 0.2);
+    const raw = new Float32Array(len + fade);
     let last = 0;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < raw.length; i++) {
       const white = Math.random() * 2 - 1;
       last = (last + 0.02 * white) / 1.02;
-      data[i] = last * 3.5;
+      raw[i] = last * 3.5;
+    }
+    // Seamless loop via overlap-crossfade: the generated tail beyond `len`
+    // fades into the head, so the wrap point is fully continuous (no click).
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    data.set(raw.subarray(0, len));
+    for (let i = 0; i < fade; i++) {
+      const t = i / fade;
+      data[i] = raw[len + i] * (1 - t) + raw[i] * t;
     }
     return buf;
   }
@@ -141,65 +154,67 @@ class AudioEngine {
     const timers: number[] = [];
 
     if (this.ambienceId === 'drift') {
-      // three detuned triangles through a slowly sweeping lowpass + echo
-      const lp = ctx.createBiquadFilter();
-      lp.type = 'lowpass';
-      lp.frequency.value = 600;
-      const lfo = ctx.createOscillator();
-      lfo.frequency.value = 0.05;
-      const lfoGain = ctx.createGain();
-      lfoGain.gain.value = 300;
-      lfo.connect(lfoGain).connect(lp.frequency);
-      lfo.start();
-      const pad = ctx.createGain();
-      pad.gain.value = 0.05;
-      lp.connect(pad).connect(gain);
-      const delay = ctx.createDelay(2);
-      delay.delayTime.value = 0.9;
-      const fb = ctx.createGain();
-      fb.gain.value = 0.45;
-      const wet = ctx.createGain();
-      wet.gain.value = 0.4;
-      pad.connect(delay);
-      delay.connect(fb).connect(delay);
-      delay.connect(wet).connect(gain);
-      nodes.push(lp, lfo, lfoGain, pad, delay, fb, wet);
-      for (const f of [110, 164.8, 220.5]) {
-        const osc = ctx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.value = f;
-        osc.detune.value = Math.random() * 8 - 4;
-        osc.connect(lp);
-        osc.start();
-        nodes.push(osc);
-      }
+      // non-melodic: slow swelling bands of filtered noise, like distant solar
+      // wind — no sustained chord, no tune, nothing to latch onto
+      const noise = ctx.createBufferSource();
+      noise.buffer = this.brownNoiseBuffer(ctx);
+      noise.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 320;
+      bp.Q.value = 1.4;
+      const centerLfo = ctx.createOscillator();
+      centerLfo.frequency.value = 0.03; // full sweep every ~33 s
+      const centerDepth = ctx.createGain();
+      centerDepth.gain.value = 170; // 150–490 Hz
+      centerLfo.connect(centerDepth).connect(bp.frequency);
+      centerLfo.start();
+      const swell = ctx.createGain();
+      swell.gain.value = 0.05;
+      const ampLfo = ctx.createOscillator();
+      ampLfo.frequency.value = 0.017; // one breath per minute
+      const ampDepth = ctx.createGain();
+      ampDepth.gain.value = 0.025;
+      ampLfo.connect(ampDepth).connect(swell.gain);
+      ampLfo.start();
+      noise.connect(bp).connect(swell).connect(gain);
+      noise.start();
+      nodes.push(noise, bp, centerLfo, centerDepth, swell, ampLfo, ampDepth);
+      // very rare, very low single swell — texture, not melody
+      const deep = () => {
+        if (!this.ambience || this.ambience.gain !== gain) return;
+        const freqs = [55, 62, 73, 82];
+        this.playTone({ freq: freqs[Math.floor(Math.random() * freqs.length)], type: 'sine', attack: 4, release: 6, peak: 0.02, out: gain });
+        timers.push(window.setTimeout(deep, 45000 + Math.random() * 45000));
+      };
+      timers.push(window.setTimeout(deep, 30000));
     } else if (this.ambienceId === 'cockpit') {
-      // faint machinery + occasional soft blips
+      // faint machinery + rare soft low blips
       const saw = ctx.createOscillator();
       saw.type = 'sawtooth';
       saw.frequency.value = 50;
       const lp = ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = 120;
+      lp.frequency.value = 110;
       const sg = ctx.createGain();
-      sg.gain.value = 0.04;
+      sg.gain.value = 0.03;
       saw.connect(lp).connect(sg).connect(gain);
       saw.start();
       nodes.push(saw, lp, sg);
       const blip = () => {
         if (!this.ambience || this.ambience.gain !== gain) return;
-        this.playTone({ freq: 620 + Math.random() * 280, type: 'sine', attack: 0.01, release: 0.06, peak: 0.02, out: gain });
-        timers.push(window.setTimeout(blip, 8000 + Math.random() * 12000));
+        this.playTone({ freq: 380 + Math.random() * 140, type: 'sine', attack: 0.04, release: 0.25, peak: 0.012, out: gain });
+        timers.push(window.setTimeout(blip, 20000 + Math.random() * 25000));
       };
-      timers.push(window.setTimeout(blip, 5000));
+      timers.push(window.setTimeout(blip, 12000));
     } else {
-      // deep silence: a distant tone every 35–70 s
+      // deep silence: a barely-there distant tone every 45–90 s
       const tone = () => {
         if (!this.ambience || this.ambience.gain !== gain) return;
-        this.playTone({ freq: 330, type: 'sine', attack: 2.5, release: 2.5, peak: 0.015, out: gain });
-        timers.push(window.setTimeout(tone, 35000 + Math.random() * 35000));
+        this.playTone({ freq: 220, type: 'sine', attack: 3, release: 3.5, peak: 0.01, out: gain });
+        timers.push(window.setTimeout(tone, 45000 + Math.random() * 45000));
       };
-      timers.push(window.setTimeout(tone, 15000));
+      timers.push(window.setTimeout(tone, 20000));
     }
 
     this.ambience = { nodes, gain, timers };
@@ -239,19 +254,19 @@ class AudioEngine {
   }
 
   cueLaunch() {
-    this.playTone({ freq: 320, startFreq: 180, sweepDuration: 1.8, type: 'sine', attack: 0.4, release: 0.8, peak: 0.12 });
+    this.playTone({ freq: 320, startFreq: 180, sweepDuration: 1.8, type: 'sine', attack: 0.4, release: 0.8, peak: 0.09 });
   }
 
   cueArrival() {
     // warm resolving chord: F3, A3, C4 staggered
     const chord = [174.6, 220, 261.6];
     chord.forEach((f, i) => {
-      this.playTone({ freq: f, type: 'triangle', attack: 0.3, release: 3, peak: 0.09, delay: i * 0.4 });
+      this.playTone({ freq: f, type: 'triangle', attack: 0.3, release: 3, peak: 0.07, delay: i * 0.4 });
     });
   }
 
   cueHalfway() {
-    this.playTone({ freq: 523.3, type: 'sine', attack: 0.05, release: 1.2, peak: 0.04 });
+    this.playTone({ freq: 523.3, type: 'sine', attack: 0.05, release: 1.2, peak: 0.03 });
   }
 }
 

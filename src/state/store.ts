@@ -69,7 +69,7 @@ export const useStore = create<AppState>()(
       totalFocusMinutes: 0,
       totalDistanceMkm: 0,
       log: [],
-      settings: { volume: 0.5, muted: false, ambience: 'drift', reducedMotion: false, skipRitual: false, halfwayPing: false },
+      settings: { volume: 0.3, muted: false, ambience: 'drift', reducedMotion: false, skipRitual: false, halfwayPing: false },
 
       openBriefing: (pending) => set({ pending, phase: 'briefing' }),
       cancelBriefing: () => set({ pending: null, phase: 'idle' }),

@@ -2,10 +2,11 @@
 
 A deep-focus timer themed as interplanetary travel. Pick a destination — the
 farther the body, the longer the session — run through a short launch ritual,
-and stay on course while you work. The screen stays calm during focus: a slow
-parallax starfield, your destination growing quietly nearer, and an ambient
-spacecraft hum. Arrive to a warm chord, log the journey, and chart the world
-on your personal star map.
+and stay on course while you work. The screen stays calm during focus: a
+top-down orbital map with your craft inching along its trajectory from Earth,
+a slow parallax starfield behind it, and an ambient spacecraft hum. Arrive to
+a warm chord and a close-up planet reveal, log the journey, and chart the
+world on your personal star map.
 
 - **Destinations** from Low Earth Orbit (5 min) to the Kuiper Belt (150 min);
   Mars is the classic 25-minute run. Farther worlds unlock as your lifetime
