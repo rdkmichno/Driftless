@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Starfield } from './starfield';
 import { drawDestination } from './planets';
+import { computeLayout, drawFlightMap } from './flightmap';
 import { getDestination } from '../data/destinations';
 import { useStore, type Phase } from '../state/store';
 
@@ -9,6 +10,7 @@ import { useStore, type Phase } from '../state/store';
 export const sceneState = {
   planetProgress: 0,
   destinationId: null as string | null,
+  classified: false,
 };
 
 const PHASE_SPEED: Record<Phase, number> = {
@@ -20,7 +22,6 @@ const PHASE_SPEED: Record<Phase, number> = {
   arrived: 0.15,
 };
 
-const easeInCubic = (x: number) => x * x * x;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export function SceneCanvas() {
@@ -54,7 +55,9 @@ export function SceneCanvas() {
     const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)');
     const isReduced = () => prefersReduced.matches || useStore.getState().settings.reducedMotion;
 
-    const drawPlanet = (t: number) => {
+    // Transit renders the top-down flight map; arrival crossfades the map out
+    // while the destination planet zooms in for the reveal.
+    const drawMission = (t: number) => {
       if (!sceneState.destinationId) return;
       const dest = getDestination(sceneState.destinationId);
       if (!dest) return;
@@ -62,15 +65,25 @@ export function SceneCanvas() {
       const w = innerWidth;
       const h = innerHeight;
       const m = Math.min(w, h);
-      const baseR = lerp(2, m * 0.34, easeInCubic(sceneState.planetProgress));
+      if (phase === 'idle' || phase === 'briefing' || phase === 'launching') arrivalScale = 0;
       const swellTarget = phase === 'arriving' || phase === 'arrived' ? 1 : 0;
-      arrivalScale += (swellTarget - arrivalScale) * 0.02;
-      const r = lerp(baseR, m * 0.46, arrivalScale);
-      const fade = Math.min(1, sceneState.planetProgress / 0.06);
-      ctx.save();
-      ctx.globalAlpha = fade;
-      drawDestination(ctx, dest, w * 0.5, h * 0.4, r, t / 1000);
-      ctx.restore();
+      arrivalScale += (swellTarget - arrivalScale) * 0.014;
+
+      if (phase === 'transit' || phase === 'arriving') {
+        const layout = computeLayout(w, h);
+        drawFlightMap(ctx, layout, dest, sceneState.planetProgress, t / 1000, {
+          classified: sceneState.classified,
+          globalAlpha: 1 - arrivalScale,
+        });
+      }
+      if (arrivalScale > 0.01 && (phase === 'arriving' || phase === 'arrived')) {
+        const eased = 1 - (1 - arrivalScale) ** 3; // ease-out
+        const r = lerp(m * 0.05, m * 0.46, eased);
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, arrivalScale * 2.5);
+        drawDestination(ctx, dest, w * 0.5, h * 0.4, r, t / 1000);
+        ctx.restore();
+      }
     };
 
     const frame = (t: number) => {
@@ -79,7 +92,7 @@ export function SceneCanvas() {
       field.setSpeedTarget(PHASE_SPEED[useStore.getState().phase]);
       if (!isReduced()) field.step(dt);
       field.draw(ctx);
-      drawPlanet(t);
+      drawMission(t);
       raf = requestAnimationFrame(frame);
     };
 

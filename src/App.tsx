@@ -53,6 +53,7 @@ export function App() {
     const s = st.activeSession;
     const inFlight = phase === 'transit' || phase === 'arriving' || phase === 'launching';
     sceneState.destinationId = inFlight || phase === 'arrived' ? (s?.destinationId ?? st.arrival?.destinationId ?? null) : null;
+    sceneState.classified = s?.classified ?? false;
     if (!s || !inFlight) {
       if (phase === 'idle') sceneState.planetProgress = 0;
       prevProgress.current = 0;
