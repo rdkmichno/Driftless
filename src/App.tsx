@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { SceneCanvas, sceneState } from './canvas/SceneCanvas';
 import { ARRIVING_MS, progress, remainingMs } from './engine/session';
 import { useTicker } from './engine/useTicker';
@@ -29,6 +29,14 @@ export function App() {
     useStore.getState().resume(Date.now());
   }, []);
 
+  // Dev-only phase timeline for debugging/verification
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      const w = window as unknown as { __phases?: [number, string][] };
+      (w.__phases ??= []).push([Date.now(), phase]);
+    }
+  }, [phase]);
+
   // Dev duration override (?t=minutes, dev builds only). Never touches custom
   // sessions — the user-entered duration is always honoured exactly.
   useEffect(() => {
@@ -51,7 +59,7 @@ export function App() {
   useEffect(() => {
     const st = useStore.getState();
     const s = st.activeSession;
-    const inFlight = phase === 'transit' || phase === 'arriving' || phase === 'launching';
+    const inFlight = phase === 'transit' || phase === 'arriving' || phase === 'launching' || phase === 'ascent';
     sceneState.destinationId = inFlight || phase === 'arrived' ? (s?.destinationId ?? st.arrival?.destinationId ?? null) : null;
     sceneState.classified = s?.classified ?? false;
     if (!s || !inFlight) {
@@ -98,6 +106,20 @@ export function App() {
           )}
           {phase === 'briefing' && <BriefingCard key="briefing" />}
           {phase === 'launching' && <LaunchSequence key="launch" />}
+          {phase === 'ascent' && (
+            <motion.button
+              key="ascent-skip"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.6, delay: 0.8 }}
+              aria-label="Skip launch animation"
+              onClick={() => useStore.getState().beginTransit(Date.now())}
+              className="absolute inset-0 h-full w-full cursor-default"
+            >
+              <span className="absolute inset-x-0 bottom-8 text-center text-xs text-ink-500">tap to skip</span>
+            </motion.button>
+          )}
           {(phase === 'transit' || phase === 'arriving') && <TransitHUD key="hud" now={now} />}
           {phase === 'arrived' && <ArrivalCard key="arrival" />}
         </AnimatePresence>

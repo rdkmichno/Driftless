@@ -126,8 +126,12 @@ export class Starfield {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D) {
+  draw(ctx: CanvasRenderingContext2D, opts: { skipBackground?: boolean; starsAlpha?: number } = {}) {
     const { w, h } = this;
+    if (opts.skipBackground) {
+      this.drawStars(ctx, opts.starsAlpha ?? 1);
+      return;
+    }
 
     const bg = ctx.createLinearGradient(0, 0, 0, h);
     bg.addColorStop(0, '#070b1a');
@@ -148,20 +152,28 @@ export class Starfield {
     ctx.fillStyle = rose;
     ctx.fillRect(0, 0, w, h);
 
+    this.drawStars(ctx, 1);
+
+    this.drawShooting(ctx);
+  }
+
+  private drawStars(ctx: CanvasRenderingContext2D, alphaMult: number) {
     ctx.fillStyle = '#e9ebf4';
     for (const layer of this.layers) {
       const ox = this.pointer.x * 14 * layer.depth;
       const oy = this.pointer.y * 10 * layer.depth;
       for (const s of layer.stars) {
         const tw = 0.82 + 0.18 * Math.sin(this.t * s.twinkleSpeed + s.twinklePhase);
-        ctx.globalAlpha = s.alpha * tw;
+        ctx.globalAlpha = s.alpha * tw * alphaMult;
         ctx.beginPath();
         ctx.arc(s.x + ox, s.y + oy, s.size, 0, Math.PI * 2);
         ctx.fill();
       }
     }
     ctx.globalAlpha = 1;
+  }
 
+  private drawShooting(ctx: CanvasRenderingContext2D) {
     if (this.shooting) {
       const sh = this.shooting;
       const fade = Math.sin(sh.life * Math.PI); // in-out

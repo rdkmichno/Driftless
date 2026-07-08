@@ -1,26 +1,35 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useStore } from '../state/store';
-import { Ship } from './Ship';
 
 export function LaunchSequence() {
   const beginTransit = useStore((s) => s.beginTransit);
+  const beginAscent = useStore((s) => s.beginAscent);
   const skipRitual = useStore((s) => s.settings.skipRitual);
   const reducedMotion = useStore((s) => s.settings.reducedMotion);
-  const quick =
-    skipRitual || reducedMotion || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const reduced =
+    reducedMotion || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const quick = skipRitual || reduced;
   const steps = quick ? ['Ignition'] : ['3', '2', '1', 'Ignition'];
   const [idx, setIdx] = useState(0);
   const isLast = idx >= steps.length - 1;
   const delay = steps[idx] === 'Ignition' ? 700 : 900;
 
   useEffect(() => {
-    const t = setTimeout(() => (isLast ? beginTransit() : setIdx((i) => i + 1)), delay);
+    const advance = () => {
+      if (!isLast) return setIdx((i) => i + 1);
+      // reduced motion: simple fade straight to the map, no takeoff animation
+      if (reduced) beginTransit(Date.now());
+      else beginAscent();
+    };
+    const t = setTimeout(advance, delay);
     return () => clearTimeout(t);
-  }, [idx, isLast, delay, beginTransit]);
+  }, [idx, isLast, delay, reduced, beginTransit, beginAscent]);
 
+  // The launch pad scene is drawn by the canvas behind this overlay — only
+  // the countdown digits live here, in the upper third above the rocket.
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-10">
+    <div className="flex h-full flex-col items-center pt-[16vh]">
       <div className="h-20">
         <AnimatePresence mode="wait">
           <motion.div
@@ -36,7 +45,6 @@ export function LaunchSequence() {
           </motion.div>
         </AnimatePresence>
       </div>
-      <Ship thrusting />
     </div>
   );
 }

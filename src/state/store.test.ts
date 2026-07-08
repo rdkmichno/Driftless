@@ -19,7 +19,7 @@ describe('mission lifecycle', () => {
     useStore.getState().launch(T0);
     expect(useStore.getState().phase).toBe('launching');
     expect(useStore.getState().activeSession?.endAt).toBe(T0 + 10 * 60_000);
-    useStore.getState().beginTransit();
+    useStore.getState().beginTransit(T0);
     useStore.getState().completeMission(T0 + 10 * 60_000);
     const st = useStore.getState();
     expect(st.phase).toBe('arrived');
@@ -48,6 +48,18 @@ describe('mission lifecycle', () => {
     expect(st.totalFocusMinutes).toBe(0);
     expect(st.log[0]).toMatchObject({ completed: false, actualMinutes: 5 });
     expect(st.visitedIds).toHaveLength(0);
+  });
+
+  it('re-seeds the timer when transit begins so the map gets the full duration', () => {
+    useStore.getState().openBriefing({ destinationId: 'moon', plannedMinutes: 10 });
+    useStore.getState().launch(T0);
+    useStore.getState().beginAscent();
+    expect(useStore.getState().phase).toBe('ascent');
+    // ritual + ascent took 8 s; the countdown must still be a full 10 min from map start
+    useStore.getState().beginTransit(T0 + 8_000);
+    const s = useStore.getState().activeSession!;
+    expect(s.startedAt).toBe(T0 + 8_000);
+    expect(s.endAt).toBe(T0 + 8_000 + 10 * 60_000);
   });
 
   it('resume: running session goes to transit, expired session completes', () => {

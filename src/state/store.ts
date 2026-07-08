@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { getDestination, unlockedIdsFor } from '../data/destinations';
 import { createSession, elapsedMinutes, isExpired, type ActiveSession } from '../engine/session';
 
-export type Phase = 'idle' | 'briefing' | 'launching' | 'transit' | 'arriving' | 'arrived';
+export type Phase = 'idle' | 'briefing' | 'launching' | 'ascent' | 'transit' | 'arriving' | 'arrived';
 export type AmbienceId = 'drift' | 'cockpit' | 'silence';
 
 export type Settings = {
@@ -49,7 +49,8 @@ type AppState = {
   openBriefing: (p: PendingMission) => void;
   cancelBriefing: () => void;
   launch: (now: number, category?: string) => void;
-  beginTransit: () => void;
+  beginAscent: () => void;
+  beginTransit: (now?: number) => void;
   beginArriving: () => void;
   completeMission: (now: number) => void;
   dismissArrival: () => void;
@@ -84,7 +85,19 @@ export const useStore = create<AppState>()(
         set({ activeSession: session, pending: null, phase: 'launching' });
       },
 
-      beginTransit: () => set({ phase: 'transit' }),
+      beginAscent: () => set({ phase: 'ascent' }),
+
+      // Re-seed the session timestamps when the map appears: the ritual and
+      // takeoff animation cost zero focus time, and the countdown starts at
+      // its full planned length exactly when the calm view begins.
+      beginTransit: (now = Date.now()) =>
+        set((st) => ({
+          phase: 'transit',
+          activeSession: st.activeSession
+            ? { ...st.activeSession, startedAt: now, endAt: now + st.activeSession.plannedMinutes * 60_000 }
+            : st.activeSession,
+        })),
+
       beginArriving: () => set({ phase: 'arriving' }),
 
       completeMission: (now) => {

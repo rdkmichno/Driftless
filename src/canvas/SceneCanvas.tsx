@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Starfield } from './starfield';
 import { drawDestination } from './planets';
 import { computeLayout, drawFlightMap } from './flightmap';
+import { drawAscentFrame, ASCENT_MS } from './ascent';
 import { getDestination } from '../data/destinations';
 import { useStore, type Phase } from '../state/store';
 
@@ -16,7 +17,8 @@ export const sceneState = {
 const PHASE_SPEED: Record<Phase, number> = {
   idle: 0.6,
   briefing: 0.6,
-  launching: 7,
+  launching: 0.6,
+  ascent: 1.5,
   transit: 1,
   arriving: 0.3,
   arrived: 0.15,
@@ -35,6 +37,7 @@ export function SceneCanvas() {
     let last = performance.now();
     let running = false;
     let arrivalScale = 0; // eased extra swell during arriving/arrived
+    let ascentStart: number | null = null; // takeoff animation clock
 
     const resize = () => {
       const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -86,13 +89,47 @@ export function SceneCanvas() {
       }
     };
 
+    // Takeoff: ground scene (static during the countdown), then the animated
+    // ascent that crossfades into the flight map at the top.
+    const drawTakeoff = (t: number) => {
+      const phase = useStore.getState().phase;
+      let at = 0;
+      if (phase === 'ascent') {
+        if (ascentStart === null) ascentStart = t;
+        at = Math.min(1, (t - ascentStart) / ASCENT_MS);
+      } else {
+        ascentStart = null;
+      }
+      const { starsAlpha, mapAlpha } = drawAscentFrame(ctx, innerWidth, innerHeight, at, t / 1000);
+      if (starsAlpha > 0.01) field.draw(ctx, { skipBackground: true, starsAlpha });
+      if (mapAlpha > 0.01) {
+        const dest = sceneState.destinationId ? getDestination(sceneState.destinationId) : null;
+        if (dest) {
+          drawFlightMap(ctx, computeLayout(innerWidth, innerHeight), dest, 0, t / 1000, {
+            classified: sceneState.classified,
+            globalAlpha: mapAlpha,
+          });
+        }
+      }
+      if (phase === 'ascent' && at >= 1) {
+        ascentStart = null;
+        useStore.getState().beginTransit(Date.now());
+      }
+    };
+
     const frame = (t: number) => {
       const dt = Math.min(0.1, (t - last) / 1000);
       last = t;
-      field.setSpeedTarget(PHASE_SPEED[useStore.getState().phase]);
+      const phase = useStore.getState().phase;
+      field.setSpeedTarget(PHASE_SPEED[phase]);
       if (!isReduced()) field.step(dt);
-      field.draw(ctx);
-      drawMission(t);
+      if (phase === 'launching' || phase === 'ascent') {
+        drawTakeoff(t);
+      } else {
+        ascentStart = null;
+        field.draw(ctx);
+        drawMission(t);
+      }
       raf = requestAnimationFrame(frame);
     };
 
