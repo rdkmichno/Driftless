@@ -75,10 +75,12 @@ export function drawFlightMap(
   dest: Destination,
   progress: number,
   t: number,
-  opts: { classified?: boolean; globalAlpha?: number } = {},
+  opts: { classified?: boolean; globalAlpha?: number; zoom?: number } = {},
 ) {
   const ga = opts.globalAlpha ?? 1;
   if (ga <= 0.01) return;
+  const zoom = opts.zoom ?? 1;
+  const hairline = 1 / Math.sqrt(zoom); // keep context lines from thickening under the camera
   ctx.save();
   ctx.globalAlpha = ga;
 
@@ -93,7 +95,7 @@ export function drawFlightMap(
 
   // faint orbital rings through origin and destination
   ctx.strokeStyle = 'rgba(30, 39, 80, 0.65)';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = hairline;
   for (const p of [l.origin, l.dest]) {
     const r = Math.hypot(p.x - l.sun.x, p.y - l.sun.y);
     ctx.beginPath();
@@ -161,13 +163,14 @@ export function drawFlightMap(
   ctx.save();
   ctx.translate(pos.x, pos.y);
   ctx.rotate(angle);
-  // engine glow trailing the craft
-  const glow = ctx.createRadialGradient(-8, 0, 0, -8, 0, 10);
-  glow.addColorStop(0, 'rgba(245, 206, 130, 0.5)');
+  // engine glow trailing the craft (brighter when the camera is close)
+  const glowR = zoom >= 1.6 ? 13 : 10;
+  const glow = ctx.createRadialGradient(-8, 0, 0, -8, 0, glowR);
+  glow.addColorStop(0, `rgba(245, 206, 130, ${zoom >= 1.6 ? 0.65 : 0.5})`);
   glow.addColorStop(1, 'rgba(232, 180, 90, 0)');
   ctx.fillStyle = glow;
   ctx.beginPath();
-  ctx.arc(-8, 0, 10, 0, Math.PI * 2);
+  ctx.arc(-8, 0, glowR, 0, Math.PI * 2);
   ctx.fill();
   // hull
   ctx.fillStyle = '#e9ebf4';
@@ -178,6 +181,26 @@ export function drawFlightMap(
   ctx.lineTo(-6, -4.2);
   ctx.closePath();
   ctx.fill();
+  if (zoom >= 1.6) {
+    // close-up detail: hull shading, canopy, exhaust core
+    ctx.fillStyle = 'rgba(106, 113, 137, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(9, 0);
+    ctx.lineTo(-6, 4.2);
+    ctx.lineTo(-3.5, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#1c2c55';
+    ctx.beginPath();
+    ctx.ellipse(2.5, 0, 2.4, 1.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(245, 206, 130, 0.85)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-4.6, 0);
+    ctx.lineTo(-9.5, 0);
+    ctx.stroke();
+  }
   ctx.restore();
 
   ctx.restore();

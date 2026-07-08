@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { SceneCanvas, sceneState } from './canvas/SceneCanvas';
+import { resetCamera } from './canvas/camera';
 import { ARRIVING_MS, progress, remainingMs } from './engine/session';
 import { useTicker } from './engine/useTicker';
 import { useStore } from './state/store';
@@ -87,6 +88,11 @@ export function App() {
   // Leaving idle resets sub-navigation
   useEffect(() => {
     if (phase !== 'idle') setHomeView('home');
+  }, [phase]);
+
+  // Map camera only persists across reloads of an in-progress session
+  useEffect(() => {
+    if (phase === 'idle' || phase === 'arrived') resetCamera(true);
   }, [phase]);
 
   return (

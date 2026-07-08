@@ -3,31 +3,49 @@ import { motion } from 'motion/react';
 import { getDestination, formatDistance } from '../data/destinations';
 import { formatRemaining, progress, remainingMs } from '../engine/session';
 import { computeLayout } from '../canvas/flightmap';
+import { getCamera, recenter, worldToScreen, zoomBy, MAX_ZOOM, MIN_ZOOM } from '../canvas/camera';
 import { useStore } from '../state/store';
 import { formatMinutes } from '../lib/format';
 import { Button, Panel } from './ui';
 
-function useViewport() {
-  const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+/**
+ * Endpoint pills live in the DOM (crisp text) but track the canvas camera at
+ * animation-frame rate via refs — React re-renders only on the slow ticker.
+ */
+function useCameraPills(active: boolean) {
+  const originRef = useRef<HTMLDivElement>(null);
+  const destRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-  return size;
+    if (!active) return;
+    let raf = 0;
+    const tick = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const layout = computeLayout(w, h);
+      const place = (el: HTMLDivElement | null, wx: number, wy: number, dy: number, below: boolean) => {
+        if (!el) return;
+        const p = worldToScreen(wx, wy, w, h);
+        const visible = p.x > -60 && p.x < w + 60 && p.y > -40 && p.y < h + 40;
+        el.style.opacity = visible ? '1' : '0';
+        el.style.left = `${p.x}px`;
+        el.style.top = `${p.y + dy}px`;
+        el.style.transform = `translate(-50%, ${below ? '0' : '-100%'})`;
+      };
+      place(originRef.current, layout.origin.x, layout.origin.y, 16, true);
+      place(destRef.current, layout.dest.x, layout.dest.y, -18, false);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active]);
+  return { originRef, destRef };
 }
 
-function EndpointPill({ x, y, label, dotColor, below }: { x: number; y: number; label: string; dotColor: string; below?: boolean }) {
-  return (
-    <div
-      className="absolute flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-space-700 bg-space-950/85 px-3 py-1"
-      style={{ left: x, top: y, transform: `translate(-50%, ${below ? '0' : '-100%'})` }}
-    >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: dotColor }} />
-      <span className="font-mono text-[10px] tracking-[0.18em] text-ink-300">{label}</span>
-    </div>
-  );
-}
+const pillCls =
+  'absolute flex items-center gap-1.5 rounded-full border border-space-700 bg-space-950/85 px-3 py-1 transition-opacity duration-300';
+
+const zoomBtnCls =
+  'flex h-9 w-9 items-center justify-center rounded-lg border border-space-700 bg-space-950/85 font-mono text-lg leading-none text-ink-300 transition-colors hover:text-ink-100';
 
 const Chevron = ({ up }: { up?: boolean }) => (
   <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className={up ? 'rotate-180' : ''}>
@@ -43,7 +61,8 @@ export function TransitHUD({ now }: { now: number }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mode, setMode] = useState<'time' | 'distance'>('time');
   const confirmRef = useRef<HTMLDivElement>(null);
-  const { w, h } = useViewport();
+  const showMap = phase === 'transit';
+  const { originRef, destRef } = useCameraPills(showMap);
 
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
@@ -54,13 +73,12 @@ export function TransitHUD({ now }: { now: number }) {
   if (!dest) return null;
   const classified = !!session.classified;
   const pct = progress(session, now);
-  const layout = computeLayout(w, h);
+  const cam = getCamera();
   const destLabel = classified ? 'CLASSIFIED' : dest.name.replace('The ', '').toUpperCase();
   const remainingDistMkm = dest.distanceMkm * (1 - pct);
   const distReadout = remainingDistMkm < 1
     ? `${Math.max(0, Math.round(remainingDistMkm * 1_000_000)).toLocaleString()} km`
     : `${Math.round(remainingDistMkm).toLocaleString()} M km`;
-  const showMap = phase === 'transit';
 
   return (
     <motion.div
@@ -72,13 +90,31 @@ export function TransitHUD({ now }: { now: number }) {
     >
       {showMap && (
         <>
-          <EndpointPill x={layout.origin.x} y={layout.origin.y + 16} label="EARTH" dotColor="#4a7fa8" below />
-          <EndpointPill
-            x={layout.dest.x}
-            y={layout.dest.y - 18}
-            label={destLabel}
-            dotColor={classified ? '#8a94a8' : dest.palette.accent}
-          />
+          <div ref={originRef} className={pillCls}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: '#4a7fa8' }} />
+            <span className="font-mono text-[10px] tracking-[0.18em] text-ink-300">EARTH</span>
+          </div>
+          <div ref={destRef} className={pillCls}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: classified ? '#8a94a8' : dest.palette.accent }} />
+            <span className="font-mono text-[10px] tracking-[0.18em] text-ink-300">{destLabel}</span>
+          </div>
+
+          <div className="pointer-events-auto absolute right-4 top-1/2 flex -translate-y-1/2 flex-col gap-1.5">
+            <button aria-label="Zoom in" onClick={() => zoomBy(1.5)} disabled={cam.targetZoom >= MAX_ZOOM} className={`${zoomBtnCls} disabled:opacity-40`}>
+              +
+            </button>
+            <button aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)} disabled={cam.targetZoom <= MIN_ZOOM} className={`${zoomBtnCls} disabled:opacity-40`}>
+              −
+            </button>
+            {!cam.follow && (
+              <button aria-label="Recenter on ship" title="Recenter on ship" onClick={recenter} className={zoomBtnCls}>
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                  <circle cx="7" cy="7" r="2.2" fill="currentColor" />
+                  <path d="M7 0v3M7 11v3M0 7h3M11 7h3" stroke="currentColor" strokeWidth="1.4" />
+                </svg>
+              </button>
+            )}
+          </div>
         </>
       )}
 

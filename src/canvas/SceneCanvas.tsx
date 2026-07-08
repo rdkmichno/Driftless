@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { Starfield } from './starfield';
 import { drawDestination } from './planets';
-import { computeLayout, drawFlightMap } from './flightmap';
+import { bezierPoint, computeLayout, drawFlightMap } from './flightmap';
 import { drawAscentFrame, drawAscentPost, teardownAscent, ASCENT_MS } from './ascent';
+import { applyCamera, ensureCameraLoaded, getCamera, isZoomedIn, panBy, stepCamera, zoomBy, zoomHome } from './camera';
 import { getDestination } from '../data/destinations';
 import { useStore, type Phase } from '../state/store';
 
@@ -56,12 +57,57 @@ export function SceneCanvas() {
       field.setPointer((e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1);
     addEventListener('pointermove', onPointer);
 
+    // --- map camera input: wheel zoom, drag pan, pinch (transit only) ---
+    const inTransit = () => useStore.getState().phase === 'transit';
+    const overUi = (el: EventTarget | null) => el instanceof Element && !!el.closest('button, input, a');
+    const onWheel = (e: WheelEvent) => {
+      if (!inTransit() || overUi(e.target)) return;
+      e.preventDefault();
+      zoomBy(Math.exp(-e.deltaY * 0.0016), e.clientX, e.clientY, innerWidth, innerHeight);
+    };
+    addEventListener('wheel', onWheel, { passive: false });
+
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinchDist = 0;
+    const onDown = (e: PointerEvent) => {
+      if (!inTransit() || overUi(e.target)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      }
+    };
+    const onDrag = (e: PointerEvent) => {
+      const p = pointers.get(e.pointerId);
+      if (!p) return;
+      if (pointers.size === 2) {
+        p.x = e.clientX;
+        p.y = e.clientY;
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinchDist > 0 && d > 0) zoomBy(d / pinchDist, (a.x + b.x) / 2, (a.y + b.y) / 2, innerWidth, innerHeight);
+        pinchDist = d;
+        return;
+      }
+      if (isZoomedIn()) panBy(e.clientX - p.x, e.clientY - p.y);
+      p.x = e.clientX;
+      p.y = e.clientY;
+    };
+    const onUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      pinchDist = 0;
+    };
+    addEventListener('pointerdown', onDown);
+    addEventListener('pointermove', onDrag);
+    addEventListener('pointerup', onUp);
+    addEventListener('pointercancel', onUp);
+
     const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)');
     const isReduced = () => prefersReduced.matches || useStore.getState().settings.reducedMotion;
 
-    // Transit renders the top-down flight map; arrival crossfades the map out
-    // while the destination planet zooms in for the reveal.
-    const drawMission = (t: number) => {
+    // Transit renders the top-down flight map through the user camera;
+    // arrival eases the camera home and crossfades into the planet reveal.
+    const drawMission = (t: number, dt: number) => {
       if (!sceneState.destinationId) return;
       const dest = getDestination(sceneState.destinationId);
       if (!dest) return;
@@ -75,10 +121,29 @@ export function SceneCanvas() {
 
       if (phase === 'transit' || phase === 'arriving') {
         const layout = computeLayout(w, h);
+        const margin = 150;
+        const bounds = {
+          minX: Math.min(layout.origin.x, layout.dest.x) - margin,
+          maxX: Math.max(layout.origin.x, layout.dest.x) + margin,
+          minY: Math.min(layout.origin.y, layout.dest.y) - margin,
+          maxY: Math.max(layout.origin.y, layout.dest.y) + margin,
+        };
+        if (phase === 'transit') {
+          ensureCameraLoaded();
+          const ship = bezierPoint(layout, sceneState.planetProgress);
+          stepCamera(dt, ship.x, ship.y, w, h, bounds);
+        } else {
+          zoomHome();
+          stepCamera(dt, 0, 0, w, h, bounds);
+        }
+        ctx.save();
+        applyCamera(ctx, w, h);
         drawFlightMap(ctx, layout, dest, sceneState.planetProgress, t / 1000, {
           classified: sceneState.classified,
           globalAlpha: 1 - arrivalScale,
+          zoom: getCamera().zoom,
         });
+        ctx.restore();
       }
       if (arrivalScale > 0.01 && (phase === 'arriving' || phase === 'arrived')) {
         const eased = 1 - (1 - arrivalScale) ** 3; // ease-out
@@ -136,7 +201,7 @@ export function SceneCanvas() {
           teardownAscent();
         }
         field.draw(ctx);
-        drawMission(t);
+        drawMission(t, dt);
       }
       raf = requestAnimationFrame(frame);
     };
@@ -159,6 +224,11 @@ export function SceneCanvas() {
       stop();
       removeEventListener('resize', resize);
       removeEventListener('pointermove', onPointer);
+      removeEventListener('wheel', onWheel);
+      removeEventListener('pointerdown', onDown);
+      removeEventListener('pointermove', onDrag);
+      removeEventListener('pointerup', onUp);
+      removeEventListener('pointercancel', onUp);
       document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
