@@ -26,7 +26,7 @@ export type MissionRecord = {
   category?: string;
 };
 
-export type PendingMission = { destinationId: string; plannedMinutes: number; classified?: boolean };
+export type PendingMission = { destinationId: string; plannedMinutes: number; classified?: boolean; custom?: boolean };
 
 export type ArrivalSummary = {
   destinationId: string;

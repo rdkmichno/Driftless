@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { DESTINATIONS, formatDistance, nearestUnlocked } from '../data/destinations';
 import { useStore } from '../state/store';
 import { formatHours, formatMinutes } from '../lib/format';
+import { clampCustomMinutes, CUSTOM_MIN, CUSTOM_MAX } from '../lib/customDuration';
 import { Button, Label } from './ui';
 
 export type HomeNav = 'map' | 'log' | 'settings';
@@ -15,8 +16,9 @@ export function HomeView({ onNavigate }: { onNavigate: (view: HomeNav) => void }
   const [customMin, setCustomMin] = useState(40);
 
   const launchCustom = () => {
-    const dest = nearestUnlocked(customMin, totalFocusMinutes);
-    openBriefing({ destinationId: dest.id, plannedMinutes: customMin });
+    const minutes = clampCustomMinutes(customMin);
+    const dest = nearestUnlocked(minutes, totalFocusMinutes);
+    openBriefing({ destinationId: dest.id, plannedMinutes: minutes, custom: true });
   };
 
   const launchRandom = () => {
@@ -90,15 +92,28 @@ export function HomeView({ onNavigate }: { onNavigate: (view: HomeNav) => void }
           <div className="flex items-center gap-4">
             <input
               type="range"
-              min={5}
-              max={180}
+              min={CUSTOM_MIN}
+              max={CUSTOM_MAX}
               step={5}
               value={customMin}
               onChange={(e) => setCustomMin(Number(e.target.value))}
               aria-label="Custom session length in minutes"
               className="flex-1 accent-[#e8b45a]"
             />
-            <span className="w-20 text-right font-mono text-sm text-ink-100">{formatMinutes(customMin)}</span>
+            <div className="flex items-baseline gap-1.5">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={CUSTOM_MIN}
+                max={CUSTOM_MAX}
+                value={customMin}
+                onChange={(e) => setCustomMin(e.target.value === '' ? CUSTOM_MIN : Number(e.target.value))}
+                onBlur={() => setCustomMin(clampCustomMinutes(customMin))}
+                aria-label="Custom session length in minutes"
+                className="w-16 rounded-lg border border-space-700 bg-transparent px-2 py-1 text-right font-mono text-sm text-ink-100 focus:border-ink-500 focus:outline-none"
+              />
+              <span className="font-mono text-xs text-ink-500">min</span>
+            </div>
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="ghost" onClick={launchCustom} className="flex-1 text-sm">

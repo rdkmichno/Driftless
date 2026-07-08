@@ -15,8 +15,7 @@ import { StarMap } from './components/StarMap';
 import { MissionLogView } from './components/MissionLogView';
 import { SettingsView } from './components/SettingsView';
 
-// Dev aid: ?t=<minutes> overrides every mission's planned duration (dev builds only)
-const devMinutes = import.meta.env.DEV ? Number(new URLSearchParams(location.search).get('t')) || null : null;
+import { devMinutes } from './lib/devOverride';
 
 export function App() {
   const phase = useStore((s) => s.phase);
@@ -30,11 +29,12 @@ export function App() {
     useStore.getState().resume(Date.now());
   }, []);
 
-  // Dev duration override: shrink the pending mission right after briefing opens
+  // Dev duration override (?t=minutes, dev builds only). Never touches custom
+  // sessions — the user-entered duration is always honoured exactly.
   useEffect(() => {
     if (devMinutes && phase === 'briefing') {
       const { pending } = useStore.getState();
-      if (pending && pending.plannedMinutes !== devMinutes) {
+      if (pending && !pending.custom && pending.plannedMinutes !== devMinutes) {
         useStore.setState({ pending: { ...pending, plannedMinutes: devMinutes } });
       }
     }

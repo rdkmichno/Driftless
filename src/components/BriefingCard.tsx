@@ -4,6 +4,7 @@ import { getDestination, formatDistance } from '../data/destinations';
 import { useStore } from '../state/store';
 import { formatMinutes } from '../lib/format';
 import { Button, Label, Panel } from './ui';
+import { devMinutes } from '../lib/devOverride';
 
 const CATEGORIES = ['Study', 'Work', 'Reading', 'Deep Work'];
 
@@ -38,7 +39,12 @@ export function BriefingCard() {
           <dl className="mt-4 flex flex-col gap-1.5 font-mono text-sm text-ink-300">
             <div className="flex justify-between">
               <dt className="text-ink-500">Travel time</dt>
-              <dd>{formatMinutes(pending.plannedMinutes)}</dd>
+              <dd>
+                {formatMinutes(pending.plannedMinutes)}
+                {devMinutes != null && !pending.custom && (
+                  <span className="ml-2 rounded border border-accent-600 px-1 text-[10px] text-accent-300">TEST</span>
+                )}
+              </dd>
             </div>
             {!classified && (
               <div className="flex justify-between">
