@@ -3,6 +3,8 @@ import { Starfield } from './starfield';
 import { drawDestination } from './planets';
 import { bezierPoint, computeLayout, drawFlightMap } from './flightmap';
 import { drawAscentFrame, drawAscentPost, teardownAscent, ASCENT_MS } from './ascent';
+import { drawLandingFrame, drawLandingPost, teardownLanding, LANDING_MS } from './landing';
+import { getLandingProfile } from './landingProfiles';
 import { applyCamera, ensureCameraLoaded, getCamera, isZoomedIn, panBy, stepCamera, zoomBy, zoomHome } from './camera';
 import { getDestination } from '../data/destinations';
 import { useStore, type Phase } from '../state/store';
@@ -22,6 +24,7 @@ const PHASE_SPEED: Record<Phase, number> = {
   ascent: 1.5,
   transit: 1,
   arriving: 0.3,
+  landing: 0.25,
   arrived: 0.15,
 };
 
@@ -40,6 +43,8 @@ export function SceneCanvas() {
     let arrivalScale = 0; // eased extra swell during arriving/arrived
     let ascentStart: number | null = null; // takeoff animation clock
     let takeoffActive = false; // for freeing takeoff resources on exit/skip
+    let landingStart: number | null = null; // landing animation clock
+    let landingActive = false; // stays true through 'arrived' so the card sits on the final frame
 
     const resize = () => {
       const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -185,20 +190,57 @@ export function SceneCanvas() {
       }
     };
 
+    // Landing: descent sequence themed to the destination. Animated during the
+    // 'landing' phase; its final frame is held (frozen) behind the arrival card.
+    const drawLanding = (t: number, frozen: boolean) => {
+      const destId = sceneState.destinationId;
+      const dest = destId ? getDestination(destId) : null;
+      if (!dest) return;
+      const profile = getLandingProfile(dest.id);
+      let at: number;
+      if (frozen) {
+        at = 1;
+      } else {
+        if (landingStart === null) landingStart = t;
+        at = Math.min(1, (t - landingStart) / (LANDING_MS * (profile.descentScale ?? 1)));
+      }
+      drawLandingFrame(ctx, innerWidth, innerHeight, dest, profile, at, t / 1000, (a) =>
+        field.draw(ctx, { skipBackground: true, starsAlpha: a }),
+      );
+      drawLandingPost(ctx, innerWidth, innerHeight, at);
+      if (!frozen && at >= 1) {
+        landingStart = null;
+        useStore.getState().completeMission(Date.now());
+      }
+    };
+
     const frame = (t: number) => {
       const dt = Math.min(0.1, (t - last) / 1000);
       last = t;
       const phase = useStore.getState().phase;
       field.setSpeedTarget(PHASE_SPEED[phase]);
       if (!isReduced()) field.step(dt);
-      if (phase === 'launching' || phase === 'ascent') {
+
+      const takeoff = phase === 'launching' || phase === 'ascent';
+      const landing = phase === 'landing';
+      const frozenLanding = phase === 'arrived' && landingActive;
+
+      if (takeoff) {
         takeoffActive = true;
         drawTakeoff(t);
+      } else if (landing || frozenLanding) {
+        landingActive = true;
+        drawLanding(t, frozenLanding);
       } else {
         ascentStart = null;
+        landingStart = null;
         if (takeoffActive) {
           takeoffActive = false;
           teardownAscent();
+        }
+        if (landingActive) {
+          landingActive = false;
+          teardownLanding();
         }
         field.draw(ctx);
         drawMission(t, dt);

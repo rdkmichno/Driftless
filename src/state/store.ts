@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { getDestination, unlockedIdsFor } from '../data/destinations';
 import { createSession, elapsedMinutes, isExpired, type ActiveSession } from '../engine/session';
 
-export type Phase = 'idle' | 'briefing' | 'launching' | 'ascent' | 'transit' | 'arriving' | 'arrived';
+export type Phase = 'idle' | 'briefing' | 'launching' | 'ascent' | 'transit' | 'arriving' | 'landing' | 'arrived';
 export type AmbienceId = 'drift' | 'cockpit' | 'silence';
 
 export type Settings = {
@@ -52,6 +52,7 @@ type AppState = {
   beginAscent: () => void;
   beginTransit: (now?: number) => void;
   beginArriving: () => void;
+  beginLanding: () => void;
   completeMission: (now: number) => void;
   dismissArrival: () => void;
   abortMission: (now: number) => void;
@@ -99,6 +100,11 @@ export const useStore = create<AppState>()(
         })),
 
       beginArriving: () => set({ phase: 'arriving' }),
+
+      // Session timer has completed; play the landing animation before crediting.
+      // The mission is only credited when the animation resolves (or is skipped),
+      // so a reload mid-landing still completes correctly via resume().
+      beginLanding: () => set({ phase: 'landing' }),
 
       completeMission: (now) => {
         const { activeSession: s, totalFocusMinutes, totalDistanceMkm, visitedIds, log } = get();

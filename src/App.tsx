@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { SceneCanvas, sceneState } from './canvas/SceneCanvas';
 import { resetCamera } from './canvas/camera';
-import { ARRIVING_MS, progress, remainingMs } from './engine/session';
+import { progress, remainingMs } from './engine/session';
 import { useTicker } from './engine/useTicker';
 import { useStore } from './state/store';
 import { HomeView, type HomeNav } from './components/HomeView';
@@ -56,11 +56,13 @@ export function App() {
     }
   }, [phase]);
 
-  // Mission driver: feeds the scene and advances transit -> arriving -> arrived
+  // Mission driver: feeds the scene and, at completion, hands off to the
+  // landing animation (or a calm fade under reduced motion) before crediting.
   useEffect(() => {
     const st = useStore.getState();
     const s = st.activeSession;
-    const inFlight = phase === 'transit' || phase === 'arriving' || phase === 'launching' || phase === 'ascent';
+    const inFlight =
+      phase === 'transit' || phase === 'arriving' || phase === 'launching' || phase === 'ascent' || phase === 'landing';
     sceneState.destinationId = inFlight || phase === 'arrived' ? (s?.destinationId ?? st.arrival?.destinationId ?? null) : null;
     sceneState.classified = s?.classified ?? false;
     if (!s || !inFlight) {
@@ -73,14 +75,13 @@ export function App() {
     if (st.settings.halfwayPing && prevProgress.current > 0 && prevProgress.current < 0.5 && p >= 0.5) {
       audio.cueHalfway();
     }
-    const remaining = remainingMs(s, now);
-    if (phase === 'transit' || phase === 'arriving') {
-      if (remaining <= 0) {
-        sceneState.planetProgress = 1;
-        st.completeMission(Date.now());
-        return;
-      }
-      if (phase === 'transit' && remaining <= ARRIVING_MS) st.beginArriving();
+    if (phase === 'transit' && remainingMs(s, now) <= 0) {
+      sceneState.planetProgress = 1;
+      const reduced =
+        st.settings.reducedMotion || matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduced) st.completeMission(Date.now()); // calm fade straight to the arrival card
+      else st.beginLanding(); // play the descent, which credits on completion
+      return;
     }
     prevProgress.current = p;
   }, [now, phase]);
@@ -127,6 +128,20 @@ export function App() {
             </motion.button>
           )}
           {(phase === 'transit' || phase === 'arriving') && <TransitHUD key="hud" now={now} />}
+          {phase === 'landing' && (
+            <motion.button
+              key="landing-skip"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.6, delay: 0.8 }}
+              aria-label="Skip landing animation"
+              onClick={() => useStore.getState().completeMission(Date.now())}
+              className="absolute inset-0 h-full w-full cursor-default"
+            >
+              <span className="absolute inset-x-0 bottom-8 text-center text-xs text-ink-500">tap to skip</span>
+            </motion.button>
+          )}
           {phase === 'arrived' && <ArrivalCard key="arrival" />}
         </AnimatePresence>
       </div>

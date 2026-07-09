@@ -17,6 +17,8 @@ type AudioSnapshot = {
   ambienceNodes: number;
   takeoffActive: boolean;
   takeoffNodes: number;
+  landingActive: boolean;
+  landingNodes: number;
   halfwayEnabled: boolean;
   halfwayCueCount: number;
   pans: number[]; // pan value of every panner in the graph — all must be 0
@@ -29,6 +31,7 @@ class AudioEngine {
   private bed: { nodes: AudioNode[]; gain: GainNode } | null = null;
   private ambience: { nodes: AudioNode[]; gain: GainNode; timers: number[] } | null = null;
   private takeoff: { nodes: AudioNode[]; gain: GainNode; endTimer: number } | null = null;
+  private landing: { nodes: AudioNode[]; gain: GainNode; endTimer: number } | null = null;
   private ambienceId: AmbienceId = 'drift';
   private volume = 0.5;
   private muted = false;
@@ -71,6 +74,8 @@ class AudioEngine {
       ambienceNodes: this.ambience?.nodes.length ?? 0,
       takeoffActive: !!this.takeoff,
       takeoffNodes: this.takeoff?.nodes.length ?? 0,
+      landingActive: !!this.landing,
+      landingNodes: this.landing?.nodes.length ?? 0,
       halfwayEnabled: this.halfwayEnabled,
       halfwayCueCount: this.halfwayCueCount,
       pans: this.centerPan ? [this.centerPan.pan.value] : [],
@@ -396,6 +401,101 @@ class AudioEngine {
     const { nodes, endTimer } = this.takeoff;
     window.clearTimeout(endTimer);
     this.takeoff = null;
+    nodes.forEach((n) => {
+      if (n instanceof AudioScheduledSourceNode) {
+        try {
+          n.stop();
+        } catch { /* already stopped */ }
+      }
+      n.disconnect();
+    });
+  }
+
+  /**
+   * Landing roar — the takeoff reversed: near-silence in space, a building
+   * retro-burn rumble, a touchdown thump, then quiet (into the arrival chord).
+   * On airless bodies there is no atmospheric roar — only a lower, quieter,
+   * heavily muffled hull-conducted burn. Torn down after the arrival card.
+   */
+  startLanding(airless: boolean, durationMs = 5200) {
+    if (!this.ctx || !this.master || this.landing) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    const dur = durationMs / 1000;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(this.master);
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = this.brownNoiseBuffer(ctx);
+    noise.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    // airless: muffled hull burn (very low cutoff); atmo: fuller retro roar
+    const lo = airless ? 90 : 180;
+    const hi = airless ? 260 : 640;
+    lp.frequency.setValueAtTime(lo, t0);
+    lp.frequency.linearRampToValueAtTime(hi, t0 + dur * 0.45);
+    lp.frequency.linearRampToValueAtTime(lo, t0 + dur);
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0.9;
+    noise.connect(lp).connect(noiseGain).connect(gain);
+
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(40, t0);
+    sub.frequency.linearRampToValueAtTime(50, t0 + dur * 0.5);
+    sub.frequency.linearRampToValueAtTime(34, t0 + dur);
+    const subGain = ctx.createGain();
+    subGain.gain.value = airless ? 0.16 : 0.24;
+    sub.connect(subGain).connect(gain);
+
+    // envelope: near-silent → building burn → quiet
+    const peak = airless ? 0.09 : 0.15;
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(peak, t0 + dur * 0.45); // building retro-burn
+    gain.gain.setValueAtTime(peak, t0 + dur * 0.78);
+    gain.gain.linearRampToValueAtTime(peak * 0.25, t0 + dur * 0.92);
+    gain.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+
+    // touchdown thump routed through the same gain (so mute/volume apply)
+    const thumpT = t0 + dur * 0.86;
+    const thump = ctx.createOscillator();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(72, thumpT);
+    thump.frequency.exponentialRampToValueAtTime(38, thumpT + 0.35);
+    const thumpGain = ctx.createGain();
+    thumpGain.gain.setValueAtTime(0, thumpT);
+    thumpGain.gain.linearRampToValueAtTime(airless ? 0.06 : 0.12, thumpT + 0.02);
+    thumpGain.gain.setTargetAtTime(0, thumpT + 0.06, 0.12);
+    thump.connect(thumpGain).connect(gain);
+
+    noise.start(t0);
+    sub.start(t0);
+    thump.start(thumpT);
+    const stopAt = t0 + dur + 0.3;
+    noise.stop(stopAt);
+    sub.stop(stopAt);
+    thump.stop(stopAt);
+
+    const endTimer = window.setTimeout(() => this.teardownLanding(), durationMs + 500);
+    this.landing = { nodes: [gain, noise, lp, noiseGain, sub, subGain, thump, thumpGain], gain, endTimer };
+  }
+
+  stopLanding(fadeSec = 0.4) {
+    if (!this.ctx || !this.landing) return;
+    window.clearTimeout(this.landing.endTimer);
+    this.landing.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.landing.gain.gain.setTargetAtTime(0, this.ctx.currentTime, fadeSec / 3);
+    this.landing.endTimer = window.setTimeout(() => this.teardownLanding(), fadeSec * 1000 + 200);
+  }
+
+  private teardownLanding() {
+    if (!this.landing) return;
+    const { nodes, endTimer } = this.landing;
+    window.clearTimeout(endTimer);
+    this.landing = null;
     nodes.forEach((n) => {
       if (n instanceof AudioScheduledSourceNode) {
         try {

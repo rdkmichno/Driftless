@@ -2,8 +2,10 @@ import { useEffect } from 'react';
 import { useStore, type Phase } from '../state/store';
 import { audio } from './engine';
 import { ASCENT_MS } from '../canvas/ascent';
+import { LANDING_MS } from '../canvas/landing';
+import { getLandingProfile } from '../canvas/landingProfiles';
 
-const MISSION_PHASES: Phase[] = ['launching', 'ascent', 'transit', 'arriving'];
+const MISSION_PHASES: Phase[] = ['launching', 'ascent', 'transit', 'arriving', 'landing'];
 
 /** Wires store settings and phase transitions to the audio engine. Call once in App. */
 export function useAudio() {
@@ -30,15 +32,23 @@ export function useAudio() {
         if (st.phase === 'ascent') audio.startTakeoff(ASCENT_MS);
         else if (prev.phase === 'ascent') audio.stopTakeoff();
 
+        // landing roar tracks the descent; leaving landing (arrival card, or a
+        // skip) fades and tears it down
+        if (st.phase === 'landing') {
+          const destId = st.activeSession?.destinationId;
+          const airless = destId ? getLandingProfile(destId).atmosphere === 'none' : false;
+          audio.startLanding(airless, LANDING_MS);
+        } else if (prev.phase === 'landing') {
+          audio.stopLanding();
+        }
+
         if (st.phase === 'launching') {
           audio.startBed();
           audio.cueLaunch();
         } else if (st.phase === 'transit' && prev.phase === 'idle') {
           audio.startBed(); // resumed session after reload
-        } else if (st.phase === 'arriving') {
-          audio.cueArrival();
-        } else if (st.phase === 'arrived' && prev.phase !== 'arriving') {
-          // reload-after-expiry lands directly on arrived — still play the chord
+        } else if (st.phase === 'arrived') {
+          // completion (via landing, reduced-motion fade, or reload-after-expiry)
           audio.cueArrival();
         } else if (st.phase === 'idle' && MISSION_PHASES.includes(prev.phase)) {
           audio.stopBed(); // aborted
