@@ -30,5 +30,6 @@ export default defineConfig({
       },
     }),
   ],
-  test: { environment: 'jsdom' },
+  // vitest runs the unit suite under src only; Playwright owns e2e/
+  test: { environment: 'jsdom', include: ['src/**/*.{test,spec}.{ts,tsx}'] },
 });
