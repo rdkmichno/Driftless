@@ -23,20 +23,21 @@ test.describe('10-second test mode', () => {
     });
 
     // test mode forced the timer to 10s, while the real duration data is intact
+    const TEST_SESSION_MS = 5_000; // mirrors src/lib/testMode.ts
     const durAfterLaunch = await page.evaluate(() => {
       const a = (window as any).__driftlessStore.getState().activeSession;
       return { dur: a.endAt - a.startedAt, planned: a.plannedMinutes, test: a.test };
     });
-    expect(durAfterLaunch.dur).toBe(10_000);
+    expect(durAfterLaunch.dur).toBe(TEST_SESSION_MS); // short test timer, not the real 10 min
     expect(durAfterLaunch.planned).toBe(10); // real minutes preserved
     expect(durAfterLaunch.test).toBe(true);
 
-    // through the takeoff into the map — duration is preserved (still 10s, not jumped)
+    // through the takeoff into the map — duration is preserved (not jumped)
     await page.evaluate(() => {
       (window as any).__driftlessStore.getState().beginAscent();
       (window as any).__driftlessStore.getState().beginTransit(Date.now());
     });
-    expect(await page.evaluate(() => { const a = (window as any).__driftlessStore.getState().activeSession; return a.endAt - a.startedAt; })).toBe(10_000);
+    expect(await page.evaluate(() => { const a = (window as any).__driftlessStore.getState().activeSession; return a.endAt - a.startedAt; })).toBe(TEST_SESSION_MS);
     expect(await page.evaluate(() => (window as any).__driftlessStore.getState().phase)).toBe('transit');
 
     // timer completes → landing animation fires (phase + landing audio nodes)

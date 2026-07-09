@@ -5,6 +5,7 @@ import { bezierPoint, computeLayout, drawFlightMap } from './flightmap';
 import { drawAscentFrame, drawAscentPost, teardownAscent, ASCENT_MS } from './ascent';
 import { drawLandingFrame, drawLandingPost, teardownLanding, LANDING_MS } from './landing';
 import { getLandingProfile } from './landingProfiles';
+import { TEST_MODE, TEST_ASCENT_MS, TEST_LANDING_MS } from '../lib/testMode';
 import { applyCamera, ensureCameraLoaded, getCamera, isZoomedIn, panBy, stepCamera, zoomBy, zoomHome } from './camera';
 import { getDestination } from '../data/destinations';
 import { useStore, type Phase } from '../state/store';
@@ -167,7 +168,7 @@ export function SceneCanvas() {
       let at = 0;
       if (phase === 'ascent') {
         if (ascentStart === null) ascentStart = t;
-        at = Math.min(1, (t - ascentStart) / ASCENT_MS);
+        at = Math.min(1, (t - ascentStart) / (TEST_MODE ? TEST_ASCENT_MS : ASCENT_MS));
       } else {
         ascentStart = null;
       }
@@ -202,7 +203,8 @@ export function SceneCanvas() {
         at = 1;
       } else {
         if (landingStart === null) landingStart = t;
-        at = Math.min(1, (t - landingStart) / (LANDING_MS * (profile.descentScale ?? 1)));
+        const dur = TEST_MODE ? TEST_LANDING_MS : LANDING_MS * (profile.descentScale ?? 1);
+        at = Math.min(1, (t - landingStart) / dur);
       }
       drawLandingFrame(ctx, innerWidth, innerHeight, dest, profile, at, t / 1000, (a) =>
         field.draw(ctx, { skipBackground: true, starsAlpha: a }),

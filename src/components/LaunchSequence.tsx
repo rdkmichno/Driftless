@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useStore } from '../state/store';
+import { TEST_MODE } from '../lib/testMode';
 
 export function LaunchSequence() {
   const beginTransit = useStore((s) => s.beginTransit);
@@ -9,7 +10,7 @@ export function LaunchSequence() {
   const reducedMotion = useStore((s) => s.settings.reducedMotion);
   const reduced =
     reducedMotion || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const quick = skipRitual || reduced;
+  const quick = skipRitual || reduced || TEST_MODE; // test mode skips the 3-2-1 countdown
   const steps = quick ? ['Ignition'] : ['3', '2', '1', 'Ignition'];
   const [idx, setIdx] = useState(0);
   const isLast = idx >= steps.length - 1;

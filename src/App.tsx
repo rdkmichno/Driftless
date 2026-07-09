@@ -105,7 +105,7 @@ export function App() {
           data-testid="test-mode-badge"
           className="pointer-events-none fixed left-3 top-3 z-50 rounded border border-accent-400 bg-space-950/85 px-2 py-1 font-mono text-[10px] tracking-[0.2em] text-accent-300"
         >
-          ⚠ TEST MODE · 10s JOURNEYS
+          ⚠ TEST MODE · ~10s LOOP
         </div>
       )}
       <div className="relative z-10 h-full">

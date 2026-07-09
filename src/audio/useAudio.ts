@@ -4,6 +4,7 @@ import { audio } from './engine';
 import { ASCENT_MS } from '../canvas/ascent';
 import { LANDING_MS } from '../canvas/landing';
 import { getLandingProfile } from '../canvas/landingProfiles';
+import { TEST_MODE, TEST_ASCENT_MS, TEST_LANDING_MS } from '../lib/testMode';
 
 const MISSION_PHASES: Phase[] = ['launching', 'ascent', 'transit', 'arriving', 'landing'];
 
@@ -29,7 +30,7 @@ export function useAudio() {
       if (st.phase !== prev.phase) {
         // takeoff roar tracks the ascent animation; leaving ascent (arrival at
         // the map, or a skip) fades and tears it down cleanly
-        if (st.phase === 'ascent') audio.startTakeoff(ASCENT_MS);
+        if (st.phase === 'ascent') audio.startTakeoff(TEST_MODE ? TEST_ASCENT_MS : ASCENT_MS);
         else if (prev.phase === 'ascent') audio.stopTakeoff();
 
         // landing roar tracks the descent; leaving landing (arrival card, or a
@@ -37,7 +38,7 @@ export function useAudio() {
         if (st.phase === 'landing') {
           const destId = st.activeSession?.destinationId;
           const airless = destId ? getLandingProfile(destId).atmosphere === 'none' : false;
-          audio.startLanding(airless, LANDING_MS);
+          audio.startLanding(airless, TEST_MODE ? TEST_LANDING_MS : LANDING_MS);
         } else if (prev.phase === 'landing') {
           audio.stopLanding();
         }

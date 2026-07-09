@@ -12,9 +12,13 @@ export const TEST_MODE =
   import.meta.env.VITE_TEST_MODE === 'true' ||
   (typeof location !== 'undefined' && new URLSearchParams(location.search).get('test') === '1');
 
-export const TEST_SESSION_MS = 10_000;
+// The whole journey is budgeted to ~10s under test mode: a quick liftoff, a
+// short map traversal, and a quick descent (the launch countdown is skipped).
+export const TEST_SESSION_MS = 5_000; // map traversal
+export const TEST_ASCENT_MS = 1_800; // takeoff animation
+export const TEST_LANDING_MS = 2_200; // landing animation
 
-/** Effective session length in ms: the real duration, or 10s under test mode. */
+/** Effective session length in ms: the real duration, or the short test one. */
 export function sessionDurationMs(plannedMinutes: number): number {
   return TEST_MODE ? TEST_SESSION_MS : plannedMinutes * 60_000;
 }
