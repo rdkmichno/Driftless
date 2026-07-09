@@ -11,19 +11,33 @@ const AMBIENCES: { id: AmbienceId; name: string; blurb: string }[] = [
 function Toggle({ label, note, checked, onChange }: { label: string; note?: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3">
-      <div>
+      <div className="min-w-0">
         <div className="text-sm text-ink-100">{label}</div>
         {note && <div className="text-xs text-ink-500">{note}</div>}
       </div>
+      {/*
+        Knob position is driven entirely by `checked`: an inline-flex track (so
+        the knob is a deterministic flex child, not an unanchored absolute box)
+        with an explicit inline `transform` (the `transform` property, which
+        `transition-transform` actually animates — Tailwind v4's translate-x-*
+        writes the separate `translate` property instead). Off → left + muted
+        track; on → right + amber track and border, so the two states differ by
+        position, colour, and border, never colour alone.
+      */}
       <button
+        type="button"
         role="switch"
         aria-checked={checked}
         aria-label={label}
         onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-accent-600' : 'bg-space-700'}`}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 ${
+          checked ? 'border-accent-400 bg-accent-600' : 'border-space-700 bg-space-800'
+        }`}
       >
         <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-ink-100 transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
+          aria-hidden="true"
+          className="h-[18px] w-[18px] rounded-full bg-ink-100 shadow-sm transition-transform duration-200 ease-out"
+          style={{ transform: checked ? 'translateX(23px)' : 'translateX(3px)' }}
         />
       </button>
     </div>
