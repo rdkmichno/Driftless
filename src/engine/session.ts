@@ -5,6 +5,7 @@ export type ActiveSession = {
   plannedMinutes: number;
   category?: string;
   classified?: boolean;
+  test?: boolean;
 };
 
 export const ARRIVING_MS = 15_000;
@@ -13,9 +14,12 @@ export function createSession(
   destinationId: string,
   plannedMinutes: number,
   now: number,
-  opts: { category?: string; classified?: boolean } = {},
+  opts: { category?: string; classified?: boolean; test?: boolean; durationMs?: number } = {},
 ): ActiveSession {
-  return { destinationId, startedAt: now, endAt: now + plannedMinutes * 60_000, plannedMinutes, ...opts };
+  // durationMs (test mode) overrides the real duration for the *timer only*;
+  // plannedMinutes is preserved for display/stats.
+  const { durationMs, ...rest } = opts;
+  return { destinationId, startedAt: now, endAt: now + (durationMs ?? plannedMinutes * 60_000), plannedMinutes, ...rest };
 }
 
 export function remainingMs(s: ActiveSession, now: number): number {

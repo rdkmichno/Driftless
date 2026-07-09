@@ -12,6 +12,15 @@ describe('session engine', () => {
     expect(remainingMs(s, T0 + 26 * 60_000)).toBe(0); // clamped, never negative
   });
 
+  it('durationMs overrides the timer length but preserves plannedMinutes (test mode)', () => {
+    const t = createSession('mars', 25, T0, { durationMs: 10_000, test: true });
+    expect(t.endAt - t.startedAt).toBe(10_000); // 10s timer
+    expect(t.plannedMinutes).toBe(25); // real duration preserved for display/stats
+    expect(t.test).toBe(true);
+    expect((t as unknown as { durationMs?: number }).durationMs).toBeUndefined(); // not leaked onto the session
+    expect(remainingMs(t, T0 + 10_000)).toBe(0);
+  });
+
   it('computes progress 0..1', () => {
     expect(progress(s, T0)).toBe(0);
     expect(progress(s, T0 + 12.5 * 60_000)).toBeCloseTo(0.5);

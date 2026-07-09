@@ -17,6 +17,7 @@ import { MissionLogView } from './components/MissionLogView';
 import { SettingsView } from './components/SettingsView';
 
 import { devMinutes } from './lib/devOverride';
+import { TEST_MODE } from './lib/testMode';
 
 export function App() {
   const phase = useStore((s) => s.phase);
@@ -99,6 +100,14 @@ export function App() {
   return (
     <div className="relative h-full">
       <SceneCanvas />
+      {TEST_MODE && (
+        <div
+          data-testid="test-mode-badge"
+          className="pointer-events-none fixed left-3 top-3 z-50 rounded border border-accent-400 bg-space-950/85 px-2 py-1 font-mono text-[10px] tracking-[0.2em] text-accent-300"
+        >
+          ⚠ TEST MODE · 10s JOURNEYS
+        </div>
+      )}
       <div className="relative z-10 h-full">
         <AnimatePresence mode="wait">
           {phase === 'idle' && homeView === 'home' && (

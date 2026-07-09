@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getDestination, unlockedIdsFor } from '../data/destinations';
 import { createSession, elapsedMinutes, isExpired, type ActiveSession } from '../engine/session';
+import { TEST_MODE, sessionDurationMs } from '../lib/testMode';
 
 export type Phase = 'idle' | 'briefing' | 'launching' | 'ascent' | 'transit' | 'arriving' | 'landing' | 'arrived';
 export type AmbienceId = 'drift' | 'cockpit' | 'silence';
@@ -34,6 +35,7 @@ export type ArrivalSummary = {
   distanceMkm: number;
   newlyUnlockedIds: string[];
   firstVisit: boolean;
+  test?: boolean;
 };
 
 type AppState = {
@@ -82,6 +84,8 @@ export const useStore = create<AppState>()(
         const session = createSession(pending.destinationId, pending.plannedMinutes, now, {
           category,
           classified: pending.classified,
+          durationMs: sessionDurationMs(pending.plannedMinutes), // 10s under test mode
+          test: TEST_MODE,
         });
         set({ activeSession: session, pending: null, phase: 'launching' });
       },
@@ -90,14 +94,15 @@ export const useStore = create<AppState>()(
 
       // Re-seed the session timestamps when the map appears: the ritual and
       // takeoff animation cost zero focus time, and the countdown starts at
-      // its full planned length exactly when the calm view begins.
+      // its full length exactly when the calm view begins. The original
+      // duration (real, or 10s under test mode) is preserved.
       beginTransit: (now = Date.now()) =>
-        set((st) => ({
-          phase: 'transit',
-          activeSession: st.activeSession
-            ? { ...st.activeSession, startedAt: now, endAt: now + st.activeSession.plannedMinutes * 60_000 }
-            : st.activeSession,
-        })),
+        set((st) => {
+          const s = st.activeSession;
+          if (!s) return { phase: 'transit' };
+          const dur = s.endAt - s.startedAt;
+          return { phase: 'transit', activeSession: { ...s, startedAt: now, endAt: now + dur } };
+        }),
 
       beginArriving: () => set({ phase: 'arriving' }),
 
@@ -111,10 +116,21 @@ export const useStore = create<AppState>()(
         if (!s) return;
         const dest = getDestination(s.destinationId);
         if (!dest) return;
+        const firstVisit = !visitedIds.includes(dest.id);
+        // Test-mode completions run the full loop (visited + arrival card) but
+        // never pollute the real mission log or lifetime stats.
+        if (s.test) {
+          set({
+            phase: 'arrived',
+            activeSession: null,
+            visitedIds: firstVisit ? [...visitedIds, dest.id] : visitedIds,
+            arrival: { destinationId: dest.id, minutes: s.plannedMinutes, distanceMkm: dest.distanceMkm, newlyUnlockedIds: [], firstVisit, test: true },
+          });
+          return;
+        }
         const before = unlockedIdsFor(totalFocusMinutes);
         const newTotal = totalFocusMinutes + s.plannedMinutes;
         const newlyUnlockedIds = unlockedIdsFor(newTotal).filter((id) => !before.includes(id));
-        const firstVisit = !visitedIds.includes(dest.id);
         set({
           phase: 'arrived',
           activeSession: null,

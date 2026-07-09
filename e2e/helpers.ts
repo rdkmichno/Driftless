@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS: Settings = {
  * transitions), and seeding is only-if-absent so a reload preserves whatever
  * the app itself persisted (required by the persistence tests).
  */
-export async function openApp(page: Page, settings?: Partial<Settings>) {
+export async function openApp(page: Page, settings?: Partial<Settings>, query = '') {
   await page.addInitScript(() => {
     const css = '*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }';
     const inject = () => {
@@ -51,7 +51,7 @@ export async function openApp(page: Page, settings?: Partial<Settings>) {
       }
     }, merged);
   }
-  await page.goto(APP_URL);
+  await page.goto(APP_URL + query);
   await page.waitForFunction(() => !!(window as unknown as { __driftlessStore?: unknown }).__driftlessStore);
 }
 
