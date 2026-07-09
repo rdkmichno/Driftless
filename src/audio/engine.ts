@@ -5,15 +5,36 @@ import type { AmbienceId } from '../state/store';
  * (brown-noise hum + low drone) plays during missions, with one selectable
  * ambience layered on top, plus soft one-shot cues at mission milestones.
  */
+type AudioSnapshot = {
+  ctxState: string;
+  muted: boolean;
+  volume: number;
+  masterGain: number; // instantaneous
+  masterTarget: number; // deterministic target (0 when muted)
+  ambience: AmbienceId;
+  bedActive: boolean;
+  bedNodes: number;
+  ambienceNodes: number;
+  takeoffActive: boolean;
+  takeoffNodes: number;
+  halfwayEnabled: boolean;
+  halfwayCueCount: number;
+  pans: number[]; // pan value of every panner in the graph — all must be 0
+};
+
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  private centerPan: StereoPannerNode | null = null; // explicit centered bus
   private bed: { nodes: AudioNode[]; gain: GainNode } | null = null;
   private ambience: { nodes: AudioNode[]; gain: GainNode; timers: number[] } | null = null;
+  private takeoff: { nodes: AudioNode[]; gain: GainNode; endTimer: number } | null = null;
   private ambienceId: AmbienceId = 'drift';
   private volume = 0.5;
   private muted = false;
   private bedActive = false;
+  private halfwayEnabled = false;
+  private halfwayCueCount = 0;
 
   unlock() {
     if (!this.ctx) {
@@ -25,10 +46,39 @@ class AudioEngine {
       const softener = ctx.createBiquadFilter();
       softener.type = 'lowpass';
       softener.frequency.value = 3200;
-      this.master.connect(softener).connect(ctx.destination);
+      // explicit centered stereo bus: everything (bed, ambience, cues,
+      // takeoff) routes through master → centerPan(0) → softener, so nothing
+      // can drift off-centre in the stereo field.
+      this.centerPan = ctx.createStereoPanner();
+      this.centerPan.pan.value = 0;
+      this.master.connect(this.centerPan).connect(softener).connect(ctx.destination);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
     if (this.bedActive && !this.bed) this.buildBed();
+  }
+
+  /** Test-only introspection of the live audio graph. */
+  snapshot(): AudioSnapshot {
+    return {
+      ctxState: this.ctx?.state ?? 'none',
+      muted: this.muted,
+      volume: this.volume,
+      masterGain: this.master?.gain.value ?? 0,
+      masterTarget: this.targetGain(),
+      ambience: this.ambienceId,
+      bedActive: this.bedActive,
+      bedNodes: this.bed?.nodes.length ?? 0,
+      ambienceNodes: this.ambience?.nodes.length ?? 0,
+      takeoffActive: !!this.takeoff,
+      takeoffNodes: this.takeoff?.nodes.length ?? 0,
+      halfwayEnabled: this.halfwayEnabled,
+      halfwayCueCount: this.halfwayCueCount,
+      pans: this.centerPan ? [this.centerPan.pan.value] : [],
+    };
+  }
+
+  setHalfwayEnabled(on: boolean) {
+    this.halfwayEnabled = on;
   }
 
   private targetGain() {
@@ -266,8 +316,104 @@ class AudioEngine {
   }
 
   cueHalfway() {
+    // The engine is authoritative: no midpoint tone unless enabled, so
+    // "Halfway ping off" provably creates no cue node.
+    if (!this.halfwayEnabled) return;
+    this.halfwayCueCount++;
     this.playTone({ freq: 523.3, type: 'sine', attack: 0.05, release: 1.2, peak: 0.03 });
+  }
+
+  /**
+   * Cinematic takeoff roar synced to the ~5 s ascent animation: a warm low
+   * rumble that builds at ignition, roars as the rocket accelerates, then
+   * thins and fades to near-silence as the atmosphere thins — resolving
+   * seamlessly into the ambient bed. Fully torn down afterwards.
+   */
+  startTakeoff(durationMs = 5000) {
+    if (!this.ctx || !this.master || this.takeoff) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    const dur = durationMs / 1000;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(this.master);
+
+    // low-passed brown noise = the body of the roar; cutoff automated so the
+    // sound opens up through max-Q then closes as the air thins (warm, no highs)
+    const noise = ctx.createBufferSource();
+    noise.buffer = this.brownNoiseBuffer(ctx);
+    noise.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(160, t0);
+    lp.frequency.linearRampToValueAtTime(760, t0 + dur * 0.35);
+    lp.frequency.linearRampToValueAtTime(900, t0 + dur * 0.55);
+    lp.frequency.linearRampToValueAtTime(240, t0 + dur);
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0.9;
+    noise.connect(lp).connect(noiseGain).connect(gain);
+
+    // sub-bass sine for weight, sliding up slightly with the acceleration
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(42, t0);
+    sub.frequency.linearRampToValueAtTime(58, t0 + dur * 0.5);
+    sub.frequency.linearRampToValueAtTime(38, t0 + dur);
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.25;
+    sub.connect(subGain).connect(gain);
+
+    // envelope: ignition build → roar peak → thinning → fade to near silence
+    const peak = 0.16;
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(peak, t0 + Math.min(0.9, dur * 0.18)); // ignition
+    gain.gain.setValueAtTime(peak, t0 + dur * 0.45); // roar hold
+    gain.gain.linearRampToValueAtTime(peak * 0.55, t0 + dur * 0.72); // thinning
+    gain.gain.linearRampToValueAtTime(0.0001, t0 + dur); // break into space
+
+    noise.start(t0);
+    sub.start(t0);
+    const stopAt = t0 + dur + 0.2;
+    noise.stop(stopAt);
+    sub.stop(stopAt);
+
+    const endTimer = window.setTimeout(() => this.teardownTakeoff(), durationMs + 400);
+    this.takeoff = { nodes: [gain, noise, lp, noiseGain, sub, subGain], gain, endTimer };
+  }
+
+  /** Stop the takeoff sound early (skip) with a clean fade, then tear down. */
+  stopTakeoff(fadeSec = 0.4) {
+    if (!this.ctx || !this.takeoff) return;
+    window.clearTimeout(this.takeoff.endTimer);
+    this.takeoff.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.takeoff.gain.gain.setTargetAtTime(0, this.ctx.currentTime, fadeSec / 3);
+    this.takeoff.endTimer = window.setTimeout(() => this.teardownTakeoff(), fadeSec * 1000 + 200);
+  }
+
+  private teardownTakeoff() {
+    if (!this.takeoff) return;
+    const { nodes, endTimer } = this.takeoff;
+    window.clearTimeout(endTimer);
+    this.takeoff = null;
+    nodes.forEach((n) => {
+      if (n instanceof AudioScheduledSourceNode) {
+        try {
+          n.stop();
+        } catch { /* already stopped */ }
+      }
+      n.disconnect();
+    });
   }
 }
 
 export const audio = new AudioEngine();
+
+// Test-only hooks: expose live audio-graph state (reporter) and the engine
+// (control surface) for Playwright assertions. Guarded by DEV so both are
+// stripped from production builds.
+if (import.meta.env.DEV) {
+  const w = window as unknown as { __driftlessAudio?: () => AudioSnapshot; __driftlessAudioEngine?: AudioEngine };
+  w.__driftlessAudio = () => audio.snapshot();
+  w.__driftlessAudioEngine = audio;
+}

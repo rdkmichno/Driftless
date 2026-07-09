@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { useStore, type Phase } from '../state/store';
 import { audio } from './engine';
+import { ASCENT_MS } from '../canvas/ascent';
 
-const MISSION_PHASES: Phase[] = ['launching', 'transit', 'arriving'];
+const MISSION_PHASES: Phase[] = ['launching', 'ascent', 'transit', 'arriving'];
 
 /** Wires store settings and phase transitions to the audio engine. Call once in App. */
 export function useAudio() {
@@ -11,6 +12,7 @@ export function useAudio() {
     audio.setVolume(settings.volume);
     audio.setMuted(settings.muted);
     audio.setAmbience(settings.ambience);
+    audio.setHalfwayEnabled(settings.halfwayPing);
 
     const unlock = () => audio.unlock();
     window.addEventListener('pointerdown', unlock);
@@ -21,7 +23,13 @@ export function useAudio() {
       if (st.settings.volume !== prev.settings.volume) audio.setVolume(st.settings.volume);
       if (st.settings.muted !== prev.settings.muted) audio.setMuted(st.settings.muted);
       if (st.settings.ambience !== prev.settings.ambience) audio.setAmbience(st.settings.ambience);
+      if (st.settings.halfwayPing !== prev.settings.halfwayPing) audio.setHalfwayEnabled(st.settings.halfwayPing);
       if (st.phase !== prev.phase) {
+        // takeoff roar tracks the ascent animation; leaving ascent (arrival at
+        // the map, or a skip) fades and tears it down cleanly
+        if (st.phase === 'ascent') audio.startTakeoff(ASCENT_MS);
+        else if (prev.phase === 'ascent') audio.stopTakeoff();
+
         if (st.phase === 'launching') {
           audio.startBed();
           audio.cueLaunch();

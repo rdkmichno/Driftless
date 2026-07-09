@@ -178,3 +178,9 @@ export const useStore = create<AppState>()(
     },
   ),
 );
+
+// Test-only handle for deterministic control of app state from Playwright
+// (phase transitions, seeded settings). Stripped from production builds.
+if (import.meta.env.DEV) {
+  (window as unknown as { __driftlessStore?: typeof useStore }).__driftlessStore = useStore;
+}
