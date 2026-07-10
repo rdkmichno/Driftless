@@ -7,7 +7,7 @@ import { useTicker } from './engine/useTicker';
 import { useStore } from './state/store';
 import { HomeView, type HomeNav } from './components/HomeView';
 import { AuthorizationCard } from './components/AuthorizationCard';
-import { LaunchSequence } from './components/LaunchSequence';
+import { PreLaunch } from './components/PreLaunch';
 import { TransitHUD } from './components/TransitHUD';
 import { useAudio } from './audio/useAudio';
 import { audio } from './audio/engine';
@@ -121,7 +121,7 @@ export function App() {
             <SettingsView key="settings" onBack={() => setHomeView('home')} />
           )}
           {phase === 'briefing' && <AuthorizationCard key="briefing" />}
-          {phase === 'launching' && <LaunchSequence key="launch" />}
+          {phase === 'launching' && <PreLaunch key="launch" />}
           {phase === 'ascent' && (
             <motion.button
               key="ascent-skip"

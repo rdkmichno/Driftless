@@ -12,6 +12,15 @@
 
 export const ASCENT_MS = 5000;
 
+/**
+ * Live pad inputs written by the pre-launch sequence and read by the pad
+ * scene each frame: gantry retraction, pre-ignition engine glow (the same
+ * continuous light the takeoff's ignition inherits), and a subtle camera
+ * push-in. SceneCanvas decays glow/push during the ascent so the handoff is
+ * one unbroken shot; teardownAscent resets everything.
+ */
+export const padState = { gantryRetract: 0, ignitionGlow: 0, camPush: 0 };
+
 /* ---------- small math helpers ---------- */
 
 type Rgb = [number, number, number];
@@ -240,6 +249,9 @@ export function teardownAscent() {
   cloudField = null;
   sprites = null; // sprites are cheap to rebuild on the next launch
   lastFrameT = 0;
+  padState.gantryRetract = 0;
+  padState.ignitionGlow = 0;
+  padState.camPush = 0;
 }
 
 /* ---------- rocket ---------- */
@@ -439,10 +451,12 @@ export function drawAscentFrame(
     ctx.fillStyle = '#243b38';
     ctx.fillRect(0, groundTop + 40, w, Math.max(0, h - groundTop - 40) + 4);
 
-    // warm pool of engine light on the pad at ignition
-    if (ignition > 0.05 && release < 1) {
-      const pool = ctx.createRadialGradient(px, groundTop, 4, px, groundTop, 130 * ignition);
-      pool.addColorStop(0, `rgba(232, 180, 90, ${0.4 * ignition * (1 - release)})`);
+    // warm pool of engine light on the pad — lit by real ignition OR the
+    // pre-launch buildup, so it is one continuous light across the handoff
+    const padGlow = Math.max(ignition, padState.ignitionGlow);
+    if (padGlow > 0.05 && release < 1) {
+      const pool = ctx.createRadialGradient(px, groundTop, 4, px, groundTop, 130 * padGlow);
+      pool.addColorStop(0, `rgba(232, 180, 90, ${0.4 * padGlow * (1 - release)})`);
       pool.addColorStop(1, 'rgba(232, 180, 90, 0)');
       ctx.fillStyle = pool;
       ctx.beginPath();
@@ -450,19 +464,24 @@ export function drawAscentFrame(
       ctx.fill();
     }
 
-    // platform + gantry
+    // platform + gantry (the tower retracts during the pre-launch sequence:
+    // the service arm swings clear first, then the tower slides back)
+    const gr = padState.gantryRetract;
+    const armK = smoothstep(0, 0.55, gr);
+    const towerShift = smoothstep(0.35, 1, gr) * 56;
+    const tx = px + 34 + towerShift;
     ctx.fillStyle = '#1e2750';
     ctx.fillRect(px - 52, groundTop - 4, 104, 10);
     ctx.fillStyle = '#182040';
     ctx.fillRect(px - 44, groundTop + 6, 8, 26);
     ctx.fillRect(px + 36, groundTop + 6, 8, 26);
     ctx.fillStyle = '#26314f';
-    ctx.fillRect(px + 34, groundTop - 92, 10, 88);
+    ctx.fillRect(tx, groundTop - 92, 10, 88);
     ctx.strokeStyle = 'rgba(38, 49, 79, 0.9)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(px + 34, groundTop - 78);
-    ctx.lineTo(px + 16, groundTop - 66);
+    ctx.moveTo(tx, groundTop - 78);
+    ctx.lineTo(tx + (px + 16 - tx) * (1 - armK), groundTop - 66 - 20 * armK);
     ctx.stroke();
   }
 
@@ -472,7 +491,11 @@ export function drawAscentFrame(
   const cruiseY = h * 0.42;
   const rocketY = padY + settle + (cruiseY - padY) * smoothstep(0.1, 0.32, at);
   const sway = Math.sin(timeSec * 3.1) * 0.03 * release * (1 - smoothstep(0.55, 0.8, at));
-  const thrust = ignition * (0.55 + 0.45 * release);
+  // pre-launch glow feeds straight into ignition — the same continuous light
+  const thrust = Math.max(
+    ignition * (0.55 + 0.45 * release),
+    padState.ignitionGlow * 0.6 * (1 - smoothstep(0.04, 0.12, at)),
+  );
 
   // ---- smoke particles ----
   if (thrust > 0.1) {

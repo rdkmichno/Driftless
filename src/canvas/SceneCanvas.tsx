@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Starfield } from './starfield';
 import { drawDestination } from './planets';
 import { bezierPoint, computeLayout, drawFlightMap } from './flightmap';
-import { drawAscentFrame, drawAscentPost, teardownAscent, ASCENT_MS } from './ascent';
+import { drawAscentFrame, drawAscentPost, teardownAscent, padState, ASCENT_MS } from './ascent';
 import { drawLandingFrame, drawLandingPost, teardownLanding, LANDING_MS } from './landing';
 import { getLandingProfile } from './landingProfiles';
 import { TEST_MODE, TEST_ASCENT_MS, TEST_LANDING_MS } from '../lib/testMode';
@@ -161,16 +161,30 @@ export function SceneCanvas() {
       }
     };
 
-    // Takeoff: ground scene (static during the countdown), then the animated
-    // ascent that crossfades into the flight map at the top.
-    const drawTakeoff = (t: number) => {
+    // Takeoff: pre-launch pad scene (gantry retract / glow / camera push fed
+    // by padState during the countdown), then the animated ascent that
+    // crossfades into the flight map. The camera push and pre-ignition glow
+    // decay during the ascent so the handoff reads as one continuous shot.
+    const drawTakeoff = (t: number, dt: number) => {
       const phase = useStore.getState().phase;
       let at = 0;
       if (phase === 'ascent') {
         if (ascentStart === null) ascentStart = t;
         at = Math.min(1, (t - ascentStart) / (TEST_MODE ? TEST_ASCENT_MS : ASCENT_MS));
+        padState.camPush = Math.max(0, padState.camPush - dt * 1.1);
+        padState.ignitionGlow = Math.max(0, padState.ignitionGlow - dt * 1.1);
       } else {
         ascentStart = null;
+      }
+      const push = padState.camPush;
+      const zoomed = push > 0.002;
+      if (zoomed) {
+        // slow push-in anchored near the pad, tightening as the engines light
+        ctx.save();
+        const s = 1 + 0.055 * push;
+        ctx.translate(innerWidth / 2, innerHeight * 0.75);
+        ctx.scale(s, s);
+        ctx.translate(-innerWidth / 2, -innerHeight * 0.75);
       }
       const { starsAlpha, mapAlpha } = drawAscentFrame(ctx, innerWidth, innerHeight, at, t / 1000);
       if (starsAlpha > 0.01) field.draw(ctx, { skipBackground: true, starsAlpha });
@@ -183,6 +197,7 @@ export function SceneCanvas() {
           });
         }
       }
+      if (zoomed) ctx.restore();
       drawAscentPost(ctx, innerWidth, innerHeight, at);
       if (phase === 'ascent' && at >= 1) {
         ascentStart = null;
@@ -229,7 +244,7 @@ export function SceneCanvas() {
 
       if (takeoff) {
         takeoffActive = true;
-        drawTakeoff(t);
+        drawTakeoff(t, dt);
       } else if (landing || frozenLanding) {
         landingActive = true;
         drawLanding(t, frozenLanding);
