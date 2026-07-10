@@ -9,12 +9,13 @@ test.describe('regressions', () => {
     await page.locator('input[type=number]').fill('30');
     await page.getByRole('button', { name: 'Plot custom transit' }).click();
 
-    // briefing states the real duration
-    await expect(page.getByText('Travel time')).toBeVisible();
+    // the authorization manifest states the real duration
+    await expect(page.getByText('TRANSIT TIME')).toBeVisible();
     await expect(page.getByText('30 min', { exact: true })).toBeVisible();
 
-    // confirm, then jump to the map (skip the countdown/animation deterministically)
-    await page.getByRole('button', { name: 'Confirm launch' }).click();
+    // authorize (plain-confirm path), then jump to the map deterministically
+    await page.getByRole('button', { name: 'authorize without holding' }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).__driftlessStore.getState().phase)).toBe('launching');
     await page.evaluate(() => (window as any).__driftlessStore.getState().beginTransit(Date.now()));
 
     // the map HUD shows a full 30:00 (never 0.5), and the route says 30 min
