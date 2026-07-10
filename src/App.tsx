@@ -6,7 +6,7 @@ import { progress, remainingMs } from './engine/session';
 import { useTicker } from './engine/useTicker';
 import { useStore } from './state/store';
 import { HomeView, type HomeNav } from './components/HomeView';
-import { BriefingCard } from './components/BriefingCard';
+import { AuthorizationCard } from './components/AuthorizationCard';
 import { LaunchSequence } from './components/LaunchSequence';
 import { TransitHUD } from './components/TransitHUD';
 import { useAudio } from './audio/useAudio';
@@ -120,7 +120,7 @@ export function App() {
           {phase === 'idle' && homeView === 'settings' && (
             <SettingsView key="settings" onBack={() => setHomeView('home')} />
           )}
-          {phase === 'briefing' && <BriefingCard key="briefing" />}
+          {phase === 'briefing' && <AuthorizationCard key="briefing" />}
           {phase === 'launching' && <LaunchSequence key="launch" />}
           {phase === 'ascent' && (
             <motion.button

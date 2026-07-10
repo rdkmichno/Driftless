@@ -19,6 +19,7 @@ type AudioSnapshot = {
   takeoffNodes: number;
   landingActive: boolean;
   landingNodes: number;
+  holdActive: boolean;
   halfwayEnabled: boolean;
   halfwayCueCount: number;
   pans: number[]; // pan value of every panner in the graph — all must be 0
@@ -32,6 +33,7 @@ class AudioEngine {
   private ambience: { nodes: AudioNode[]; gain: GainNode; timers: number[] } | null = null;
   private takeoff: { nodes: AudioNode[]; gain: GainNode; endTimer: number } | null = null;
   private landing: { nodes: AudioNode[]; gain: GainNode; endTimer: number } | null = null;
+  private holdTone: { osc: OscillatorNode; gain: GainNode } | null = null;
   private ambienceId: AmbienceId = 'drift';
   private volume = 0.5;
   private muted = false;
@@ -76,6 +78,7 @@ class AudioEngine {
       takeoffNodes: this.takeoff?.nodes.length ?? 0,
       landingActive: !!this.landing,
       landingNodes: this.landing?.nodes.length ?? 0,
+      holdActive: !!this.holdTone,
       halfwayEnabled: this.halfwayEnabled,
       halfwayCueCount: this.halfwayCueCount,
       pans: this.centerPan ? [this.centerPan.pan.value] : [],
@@ -326,6 +329,64 @@ class AudioEngine {
     if (!this.halfwayEnabled) return;
     this.halfwayCueCount++;
     this.playTone({ freq: 523.3, type: 'sine', attack: 0.05, release: 1.2, peak: 0.03 });
+  }
+
+  /* ---- mission-authorization ritual ---- */
+
+  /** Low tone that rises in pitch as the hold-to-authorize ring fills. */
+  startHoldTone() {
+    if (!this.ctx || !this.master || this.holdTone) return;
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 90;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.gain.setTargetAtTime(0.035, ctx.currentTime, 0.06);
+    osc.connect(gain).connect(this.master);
+    osc.start();
+    this.holdTone = { osc, gain };
+  }
+
+  setHoldProgress(p: number) {
+    if (this.holdTone && this.ctx) {
+      this.holdTone.osc.frequency.setTargetAtTime(90 + 190 * p, this.ctx.currentTime, 0.04);
+    }
+  }
+
+  /** Release: completed → clean cut into the chime; cancelled → falls away. */
+  stopHoldTone(completed = false) {
+    if (!this.holdTone || !this.ctx) return;
+    const { osc, gain } = this.holdTone;
+    this.holdTone = null;
+    const t = this.ctx.currentTime;
+    if (!completed) osc.frequency.setTargetAtTime(65, t, 0.12);
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setTargetAtTime(0, t, completed ? 0.03 : 0.14);
+    osc.stop(t + 0.8);
+    window.setTimeout(() => {
+      try {
+        osc.disconnect();
+        gain.disconnect();
+      } catch { /* already gone */ }
+    }, 900);
+  }
+
+  /** Stamp-thump + warm two-note confirmation: CLEARED FOR LAUNCH. */
+  cueAuthorized() {
+    this.playTone({ freq: 70, type: 'sine', attack: 0.005, release: 0.25, peak: 0.1 });
+    this.playTone({ freq: 440, type: 'triangle', attack: 0.01, release: 0.5, peak: 0.055, delay: 0.05 });
+    this.playTone({ freq: 587.3, type: 'triangle', attack: 0.01, release: 0.9, peak: 0.05, delay: 0.17 });
+  }
+
+  /** Soft terminal tick for each systems-check line. */
+  cueTick() {
+    this.playTone({ freq: 820, type: 'sine', attack: 0.004, release: 0.05, peak: 0.02 });
+  }
+
+  /** Low countdown pulse; each step rises in pitch. */
+  cuePulse(step: number) {
+    this.playTone({ freq: 98 + step * 24, type: 'sine', attack: 0.012, release: 0.32, peak: 0.06 });
   }
 
   /**

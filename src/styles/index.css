@@ -39,3 +39,21 @@ body {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
 }
+
+/* holographic scanline sweep for the mission-authorization card */
+@keyframes holo-scan {
+  from { top: -4%; opacity: 0.9; }
+  to { top: 103%; opacity: 0.4; }
+}
+.holo-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(245, 206, 130, 0.4), transparent);
+  animation: holo-scan 0.8s ease-out 0.25s 1 both;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .holo-scanline { display: none; }
+}
