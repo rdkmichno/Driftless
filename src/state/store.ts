@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { getDestination, unlockedIdsFor } from '../data/destinations';
+import { DESTINATIONS, getDestination, unlockedIdsFor } from '../data/destinations';
+import { evaluateNewPatches } from '../data/patches';
 import { createSession, elapsedMinutes, isExpired, type ActiveSession } from '../engine/session';
 import { TEST_MODE, sessionDurationMs } from '../lib/testMode';
 
@@ -47,6 +48,11 @@ type AppState = {
   totalFocusMinutes: number;
   totalDistanceMkm: number;
   log: MissionRecord[];
+  /** Earned mission patches: id -> earnedAt timestamp. */
+  earnedPatches: Record<string, number>;
+  /** Patch ids awaiting their reveal moment, in award order. Not persisted:
+   *  a reveal fires once per award, never again after a reload. */
+  pendingReveals: string[];
   settings: Settings;
   openBriefing: (p: PendingMission) => void;
   cancelBriefing: () => void;
@@ -57,6 +63,7 @@ type AppState = {
   beginLanding: () => void;
   completeMission: (now: number) => void;
   dismissArrival: () => void;
+  dismissReveal: () => void;
   abortMission: (now: number) => void;
   updateSettings: (p: Partial<Settings>) => void;
   resume: (now: number) => void;
@@ -73,6 +80,8 @@ export const useStore = create<AppState>()(
       totalFocusMinutes: 0,
       totalDistanceMkm: 0,
       log: [],
+      earnedPatches: {},
+      pendingReveals: [],
       settings: { volume: 0.3, muted: false, ambience: 'drift', reducedMotion: false, skipRitual: false, halfwayPing: false },
 
       openBriefing: (pending) => set({ pending, phase: 'briefing' }),
@@ -131,30 +140,50 @@ export const useStore = create<AppState>()(
         const before = unlockedIdsFor(totalFocusMinutes);
         const newTotal = totalFocusMinutes + s.plannedMinutes;
         const newlyUnlockedIds = unlockedIdsFor(newTotal).filter((id) => !before.includes(id));
+        const newVisited = firstVisit ? [...visitedIds, dest.id] : visitedIds;
+        const newLog = [
+          ...log,
+          {
+            id: crypto.randomUUID(),
+            destinationId: dest.id,
+            startedAt: s.startedAt,
+            endedAt: now,
+            plannedMinutes: s.plannedMinutes,
+            actualMinutes: s.plannedMinutes,
+            completed: true,
+            category: s.category,
+          },
+        ];
+        // Mission patches: evaluate against the post-completion state; newly
+        // earned ones queue for the reveal moment after the arrival card.
+        const { earnedPatches, pendingReveals } = get();
+        const newPatchIds = evaluateNewPatches({
+          earned: earnedPatches,
+          visitedIds: newVisited,
+          totalFocusMinutes: newTotal,
+          log: newLog,
+          justCompleted: { destinationId: dest.id, plannedMinutes: s.plannedMinutes, startedAt: s.startedAt, endedAt: now, classified: s.classified },
+          planetIds: DESTINATIONS.filter((d) => d.type === 'planet').map((d) => d.id),
+          allDestinationIds: DESTINATIONS.map((d) => d.id),
+        });
         set({
           phase: 'arrived',
           activeSession: null,
           totalFocusMinutes: newTotal,
           totalDistanceMkm: totalDistanceMkm + dest.distanceMkm,
-          visitedIds: firstVisit ? [...visitedIds, dest.id] : visitedIds,
+          visitedIds: newVisited,
           arrival: { destinationId: dest.id, minutes: s.plannedMinutes, distanceMkm: dest.distanceMkm, newlyUnlockedIds, firstVisit },
-          log: [
-            ...log,
-            {
-              id: crypto.randomUUID(),
-              destinationId: dest.id,
-              startedAt: s.startedAt,
-              endedAt: now,
-              plannedMinutes: s.plannedMinutes,
-              actualMinutes: s.plannedMinutes,
-              completed: true,
-              category: s.category,
-            },
-          ],
+          log: newLog,
+          earnedPatches: newPatchIds.length
+            ? { ...earnedPatches, ...Object.fromEntries(newPatchIds.map((id) => [id, now])) }
+            : earnedPatches,
+          pendingReveals: newPatchIds.length ? [...pendingReveals, ...newPatchIds] : pendingReveals,
         });
       },
 
       dismissArrival: () => set({ arrival: null, phase: 'idle' }),
+
+      dismissReveal: () => set((st) => ({ pendingReveals: st.pendingReveals.slice(1) })),
 
       abortMission: (now) => {
         const { activeSession: s, log } = get();
@@ -195,6 +224,7 @@ export const useStore = create<AppState>()(
         totalFocusMinutes: st.totalFocusMinutes,
         totalDistanceMkm: st.totalDistanceMkm,
         log: st.log,
+        earnedPatches: st.earnedPatches,
         settings: st.settings,
       }),
     },

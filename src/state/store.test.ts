@@ -7,10 +7,17 @@ const initial = useStore.getState();
 beforeEach(() => {
   localStorage.clear();
   useStore.setState(
-    { ...initial, phase: 'idle', pending: null, activeSession: null, arrival: null, visitedIds: [], totalFocusMinutes: 0, totalDistanceMkm: 0, log: [] },
+    { ...initial, phase: 'idle', pending: null, activeSession: null, arrival: null, visitedIds: [], totalFocusMinutes: 0, totalDistanceMkm: 0, log: [], earnedPatches: {}, pendingReveals: [] },
     true,
   );
 });
+
+const flyMission = (destinationId: string, minutes = 10, start = T0) => {
+  useStore.getState().openBriefing({ destinationId, plannedMinutes: minutes });
+  useStore.getState().launch(start);
+  useStore.getState().beginTransit(start);
+  useStore.getState().completeMission(start + minutes * 60_000);
+};
 
 describe('mission lifecycle', () => {
   it('briefing -> launch -> transit -> complete credits totals, visit, and log', () => {
@@ -60,6 +67,56 @@ describe('mission lifecycle', () => {
     const s = useStore.getState().activeSession!;
     expect(s.startedAt).toBe(T0 + 8_000);
     expect(s.endAt).toBe(T0 + 8_000 + 10 * 60_000);
+  });
+
+  it('awards mission patches on completion and queues them for reveal', () => {
+    flyMission('moon');
+    const st = useStore.getState();
+    expect(st.earnedPatches['dest-moon']).toBe(T0 + 10 * 60_000);
+    expect(st.earnedPatches['hours-first']).toBe(T0 + 10 * 60_000);
+    expect(st.pendingReveals).toContain('dest-moon');
+    expect(st.pendingReveals).toContain('hours-first');
+  });
+
+  it('never re-awards a patch on a repeat visit', () => {
+    flyMission('moon');
+    useStore.getState().dismissArrival();
+    useStore.setState({ pendingReveals: [] });
+    flyMission('moon', 10, T0 + 86_400_000);
+    const st = useStore.getState();
+    expect(st.earnedPatches['dest-moon']).toBe(T0 + 10 * 60_000); // original timestamp kept
+    expect(st.pendingReveals).toHaveLength(0);
+  });
+
+  it('dismissReveal consumes the queue one patch at a time', () => {
+    flyMission('moon');
+    const before = useStore.getState().pendingReveals;
+    expect(before.length).toBeGreaterThanOrEqual(2);
+    useStore.getState().dismissReveal();
+    expect(useStore.getState().pendingReveals).toEqual(before.slice(1));
+    useStore.getState().dismissReveal();
+    useStore.getState().dismissReveal(); // extra dismiss is a no-op
+    expect(useStore.getState().pendingReveals).toHaveLength(0);
+    // earned state is untouched by revealing
+    expect(useStore.getState().earnedPatches['dest-moon']).toBeDefined();
+  });
+
+  it('an aborted mission never awards a patch', () => {
+    useStore.getState().openBriefing({ destinationId: 'moon', plannedMinutes: 10 });
+    useStore.getState().launch(T0);
+    useStore.getState().abortMission(T0 + 5 * 60_000);
+    const st = useStore.getState();
+    expect(Object.keys(st.earnedPatches)).toHaveLength(0);
+    expect(st.pendingReveals).toHaveLength(0);
+  });
+
+  it('persists earned patches (but not the reveal queue) across reloads', () => {
+    flyMission('moon');
+    const raw = localStorage.getItem('driftless-v1');
+    expect(raw).toBeTruthy();
+    const persisted = JSON.parse(raw!).state;
+    expect(persisted.earnedPatches['dest-moon']).toBe(T0 + 10 * 60_000);
+    expect(persisted.pendingReveals).toBeUndefined();
   });
 
   it('resume: running session goes to transit, expired session completes', () => {
