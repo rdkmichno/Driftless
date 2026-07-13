@@ -323,6 +323,18 @@ class AudioEngine {
     });
   }
 
+  /** Warm "stitched-in" flourish when a mission patch is earned: a soft low
+   *  thump (the stamp landing) and a rising three-note figure that resolves
+   *  brighter than the arrival chord, so an earned patch feels like a reward.
+   *  Routed through master, so a muted session plays it silently. */
+  cuePatch() {
+    this.playTone({ freq: 88, type: 'sine', attack: 0.006, release: 0.4, peak: 0.09 });
+    const notes = [329.6, 415.3, 523.3]; // E4, G#4, C5 — a bright major resolve
+    notes.forEach((f, i) => {
+      this.playTone({ freq: f, type: 'triangle', attack: 0.02, release: 1.6, peak: 0.055, delay: 0.08 + i * 0.13 });
+    });
+  }
+
   cueHalfway() {
     // The engine is authoritative: no midpoint tone unless enabled, so
     // "Halfway ping off" provably creates no cue node.

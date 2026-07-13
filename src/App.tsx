@@ -15,6 +15,7 @@ import { ArrivalCard } from './components/ArrivalCard';
 import { StarMap } from './components/StarMap';
 import { MissionLogView } from './components/MissionLogView';
 import { SettingsView } from './components/SettingsView';
+import { PatchReveal } from './components/patch/PatchReveal';
 
 import { devMinutes } from './lib/devOverride';
 import { TEST_MODE } from './lib/testMode';
@@ -154,6 +155,7 @@ export function App() {
           {phase === 'arrived' && <ArrivalCard key="arrival" />}
         </AnimatePresence>
       </div>
+      <PatchReveal />
     </div>
   );
 }
