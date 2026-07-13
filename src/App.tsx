@@ -16,6 +16,7 @@ import { StarMap } from './components/StarMap';
 import { MissionLogView } from './components/MissionLogView';
 import { SettingsView } from './components/SettingsView';
 import { PatchReveal } from './components/patch/PatchReveal';
+import { CollectionView } from './components/patch/CollectionView';
 
 import { devMinutes } from './lib/devOverride';
 import { TEST_MODE } from './lib/testMode';
@@ -117,6 +118,9 @@ export function App() {
           {phase === 'idle' && homeView === 'map' && <StarMap key="map" onBack={() => setHomeView('home')} />}
           {phase === 'idle' && homeView === 'log' && (
             <MissionLogView key="log" onBack={() => setHomeView('home')} />
+          )}
+          {phase === 'idle' && homeView === 'patches' && (
+            <CollectionView key="patches" onBack={() => setHomeView('home')} />
           )}
           {phase === 'idle' && homeView === 'settings' && (
             <SettingsView key="settings" onBack={() => setHomeView('home')} />

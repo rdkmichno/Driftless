@@ -6,7 +6,7 @@ import { formatHours, formatMinutes } from '../lib/format';
 import { clampCustomMinutes, CUSTOM_MIN, CUSTOM_MAX } from '../lib/customDuration';
 import { Button, Label } from './ui';
 
-export type HomeNav = 'map' | 'log' | 'settings';
+export type HomeNav = 'map' | 'log' | 'patches' | 'settings';
 
 export function HomeView({ onNavigate }: { onNavigate: (view: HomeNav) => void }) {
   const totalFocusMinutes = useStore((s) => s.totalFocusMinutes);
@@ -126,9 +126,10 @@ export function HomeView({ onNavigate }: { onNavigate: (view: HomeNav) => void }
         </div>
       </main>
 
-      <nav className="mt-10 flex gap-6 pb-4">
+      <nav className="mt-10 flex flex-wrap justify-center gap-x-6 gap-y-2 pb-4">
         <Button variant="quiet" onClick={() => onNavigate('map')}>Star map</Button>
         <Button variant="quiet" onClick={() => onNavigate('log')}>Mission log</Button>
+        <Button variant="quiet" onClick={() => onNavigate('patches')}>Patches</Button>
         <Button variant="quiet" onClick={() => onNavigate('settings')}>Settings</Button>
       </nav>
     </motion.div>

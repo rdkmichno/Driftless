@@ -109,6 +109,28 @@ export const PATCHES: Patch[] = [
 
 export const getPatch = (id: string) => PATCHES.find((p) => p.id === id);
 
+export type CategoryProgress = Record<PatchCategory, { earned: number; total: number }>;
+
+/** Overall and per-category earned/total counts for the collection wall. */
+export function collectionProgress(earned: Record<string, number>): {
+  earned: number;
+  total: number;
+  byCategory: CategoryProgress;
+} {
+  const ids = new Set(Object.keys(earned));
+  const byCategory = {} as CategoryProgress;
+  let earnedCount = 0;
+  for (const p of PATCHES) {
+    const c = (byCategory[p.category] ??= { earned: 0, total: 0 });
+    c.total++;
+    if (ids.has(p.id)) {
+      c.earned++;
+      earnedCount++;
+    }
+  }
+  return { earned: earnedCount, total: PATCHES.length, byCategory };
+}
+
 /* ---------------- earning evaluation ---------------- */
 
 type CompletedRecord = { destinationId: string; startedAt: number; endedAt: number; plannedMinutes: number; completed: boolean };

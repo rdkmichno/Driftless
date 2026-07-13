@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateNewPatches, currentStreakDays, PATCHES, type PatchContext } from './patches';
+import { evaluateNewPatches, currentStreakDays, collectionProgress, PATCHES, type PatchContext } from './patches';
 import { DESTINATIONS } from './destinations';
 
 const PLANETS = DESTINATIONS.filter((d) => d.type === 'planet').map((d) => d.id);
@@ -90,6 +90,26 @@ describe('patch evaluation', () => {
     const ids = evaluateNewPatches(ctx({ justCompleted: jc }));
     expect(ids).toContain('hidden-classified');
     expect(ids.filter((id) => id.startsWith('seasonal-'))).toHaveLength(0);
+  });
+
+  it('reports collection progress overall and per category', () => {
+    const total = PATCHES.length;
+    const empty = collectionProgress({});
+    expect(empty.earned).toBe(0);
+    expect(empty.total).toBe(total);
+
+    const some = collectionProgress({ 'dest-moon': 1, 'hours-first': 1, 'dest-mars': 1 });
+    expect(some.earned).toBe(3);
+    expect(some.byCategory.destination.earned).toBe(2);
+    expect(some.byCategory.hours.earned).toBe(1);
+    expect(some.byCategory.streak.earned).toBe(0);
+    // category totals sum to the overall total
+    const sum = Object.values(some.byCategory).reduce((n, c) => n + c.total, 0);
+    expect(sum).toBe(total);
+  });
+
+  it('ignores unknown ids when counting progress', () => {
+    expect(collectionProgress({ 'not-a-patch': 1 }).earned).toBe(0);
   });
 
   it('patch data is coherent: unique ids, ring labels, hints, palettes of 3-5 colors', () => {
